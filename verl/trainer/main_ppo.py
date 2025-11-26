@@ -25,6 +25,9 @@ import numpy as np
 def _select_rm_score_fn(data_source):
     if data_source in ['nq', 'triviaqa', 'popqa', 'hotpotqa', '2wikimultihopqa', 'musique', 'bamboogle']:
         return qa_em.compute_score_em
+    elif data_source in ['qrecc_plan_b', 'qrecc_plan_a', 'qrecc']:
+        from verl.utils.reward_score import qrecc_em
+        return qrecc_em.compute_score_em
     else:
         raise NotImplementedError
 

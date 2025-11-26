@@ -205,8 +205,11 @@ def format_conversation_history(history, max_turns=5):
 **关键配置修改：**
 ```bash
 export DATA_DIR='data/qrecc_search'
-export BASE_MODEL='meta-llama/Llama-3.2-3B'
-export EXPERIMENT_NAME=qrecc-search-r1-ppo-llama3.2-3b
+export BASE_MODEL='Qwen/Qwen2.5-4B'
+export EXPERIMENT_NAME=qrecc-search-r1-ppo-qwen2.5-4b
+
+# Qwen模型需要设置VLLM backend
+export VLLM_ATTENTION_BACKEND=XFORMERS
 
 # 需要调整的参数
 data.train_files=$DATA_DIR/train.parquet
@@ -316,7 +319,7 @@ curl -X POST http://127.0.0.1:8000/retrieve \
 - Search-R1在单轮NQ上的表现
 - 直接用改写query（方案B） vs 端到端对话（方案A）
 - 不同RL算法（PPO vs GRPO）
-- 不同模型大小（3B vs 7B）
+- 不同模型大小（4B vs 7B）或不同模型系列（Qwen vs Llama）
 
 **对比表格示例：**
 | 方法 | EM | F1 | 检索次数 | 推理时间 |
@@ -424,7 +427,9 @@ bash train_qrecc_ppo.sh
 
 ### 6.3 完整训练
 **训练策略：**
-- **Base Model选择**：建议从 Llama-3.2-3B 或 Qwen2.5-3B 开始
+- **Base Model选择**：使用 **Qwen/Qwen2.5-4B**（推荐）
+  - 优势：中文和英文能力均衡，上下文理解能力强
+  - 备选：Llama-3.2-3B（纯英文任务）或 Qwen2.5-7B（更强性能）
 - **训练轮数**：参考原项目15 epochs
 - **Checkpoint保存**：每100步保存一次
 - **验证频率**：每50步验证一次
@@ -433,11 +438,12 @@ bash train_qrecc_ppo.sh
 **运行命令：**
 ```bash
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export VLLM_ATTENTION_BACKEND=XFORMERS  # Qwen模型必需
 bash train_qrecc_ppo.sh 2>&1 | tee logs/qrecc_train.log
 ```
 
 **训练时间估算：**
-- 3B模型 + 8卡GPU: 约1-2天
+- 4B模型 + 8卡GPU: 约1-2天
 - 7B模型 + 8卡GPU: 约3-5天
 
 **监控要点：**
@@ -674,7 +680,8 @@ bash train_multitask_ppo.sh
 **步骤1：训练大模型**
 ```bash
 # 先训练7B模型
-export BASE_MODEL='meta-llama/Llama-3.1-8B'
+export BASE_MODEL='Qwen/Qwen2.5-7B'
+export VLLM_ATTENTION_BACKEND=XFORMERS
 bash train_qrecc_ppo.sh
 ```
 
@@ -686,8 +693,9 @@ bash train_qrecc_ppo.sh
 
 **步骤3：蒸馏到小模型**
 ```bash
-# 用3B模型学习7B模型的行为
+# 用4B模型学习7B模型的行为
 # 可以用SFT或继续RL
+export BASE_MODEL='Qwen/Qwen2.5-4B'
 ```
 
 ### 8.5 添加Reranker
@@ -781,9 +789,9 @@ Search-R1/
 ```markdown
 | 实验ID | 日期 | 模型 | 方法 | EM | F1 | 备注 |
 |--------|------|------|------|----|----|------|
-| exp001 | 2025-01-15 | Llama-3.2-3B | 改写query | 43.2 | 50.1 | baseline |
-| exp002 | 2025-01-16 | Llama-3.2-3B | 端到端 | 39.8 | 47.3 | 需要调优 |
-| exp003 | 2025-01-17 | Llama-3.2-3B | 端到端+优化prompt | 42.1 | 49.5 | 改进 |
+| exp001 | 2025-01-15 | Qwen2.5-4B | 改写query | ? | ? | baseline |
+| exp002 | 2025-01-16 | Qwen2.5-4B | 端到端 | ? | ? | 需要调优 |
+| exp003 | 2025-01-17 | Qwen2.5-4B | 端到端+优化prompt | ? | ? | 改进 |
 | ... | ... | ... | ... | ... | ... | ... |
 ```
 
@@ -1213,7 +1221,7 @@ def truncate_history(history, max_turns=5):
 - [ ] 减少batch_size
 - [ ] 开启gradient checkpointing
 - [ ] 开启offload（param/grad/optimizer）
-- [ ] 使用更小的模型（3B而非7B）
+- [ ] 使用更小的模型（使用Qwen2.5-3B而非4B，或使用Qwen2.5-1.5B）
 - [ ] 减少max_prompt_length
 
 ---
