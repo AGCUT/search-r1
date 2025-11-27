@@ -18,6 +18,7 @@
 # ============================================================================
 # GPU Configuration
 # ============================================================================
+# Using 4x A800 GPUs (adjusted from 8 GPUs)
 export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 # ============================================================================
@@ -70,8 +71,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.val_files=$DATA_DIR/test.parquet \
     data.train_data_num=null \
     data.val_data_num=null \
-    data.train_batch_size=512 \
-    data.val_batch_size=256 \
+    data.train_batch_size=256 \
+    data.val_batch_size=128 \
     data.max_prompt_length=4096 \
     data.max_response_length=500 \
     data.max_start_length=2048 \
@@ -83,7 +84,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=true \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.285 \
-    actor_rollout_ref.actor.ppo_mini_batch_size=256 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.ppo_micro_batch_size=64 \
     actor_rollout_ref.actor.fsdp_config.param_offload=true \
     actor_rollout_ref.actor.fsdp_config.grad_offload=true \
@@ -113,7 +114,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     +trainer.val_only=false \
     +trainer.val_before_train=true \
     trainer.default_hdfs_dir=null \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=50 \
