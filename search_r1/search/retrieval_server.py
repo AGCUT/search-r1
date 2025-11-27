@@ -209,10 +209,16 @@ class DenseRetriever(BaseRetriever):
         super().__init__(config)
         self.index = faiss.read_index(self.index_path)
         if config.faiss_gpu:
+            # 创建 GPU 资源配置，限制临时显存使用
+            res = faiss.StandardGpuResources()
+            res.setTempMemory(2 * 1024 * 1024 * 1024)  # 限制为 2GB 临时显存
+
             co = faiss.GpuMultipleClonerOptions()
             co.useFloat16 = True
-            co.shard = True
-            self.index = faiss.index_cpu_to_all_gpus(self.index, co=co)
+            co.shard = False  # 使用单个 GPU，不分片
+
+            # 使用单个 GPU（dev 0，即 CUDA_VISIBLE_DEVICES 中的第一个 GPU）
+            self.index = faiss.index_cpu_to_gpu(res, 0, self.index, co)
 
         self.corpus = load_corpus(self.corpus_path)
         self.encoder = Encoder(
