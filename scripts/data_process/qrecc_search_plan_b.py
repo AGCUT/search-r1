@@ -39,26 +39,48 @@ from verl.utils.hdfs_io import copy, makedirs
 
 def load_qrecc_from_jsonl(input_dir: str, split: str):
     """
-    Load QReCC dataset from JSONL files.
+    Load QReCC dataset from JSONL/JSON files.
 
     Args:
-        input_dir: Directory containing the JSONL files
+        input_dir: Directory containing the JSONL/JSON files
         split: 'train' or 'test'
 
     Returns:
         List of examples
     """
-    jsonl_path = Path(input_dir) / f"{split}.jsonl"
+    # Try multiple possible file name patterns
+    possible_files = [
+        Path(input_dir) / f"{split}.jsonl",
+        Path(input_dir) / f"{split}.json",
+        Path(input_dir) / f"qrecc_{split}.jsonl",
+        Path(input_dir) / f"qrecc_{split}.json",
+    ]
 
-    if not jsonl_path.exists():
-        raise FileNotFoundError(f"JSONL file not found: {jsonl_path}")
+    jsonl_path = None
+    for path in possible_files:
+        if path.exists():
+            jsonl_path = path
+            break
+
+    if jsonl_path is None:
+        raise FileNotFoundError(f"JSONL/JSON file not found for split '{split}'. Tried: {[str(p) for p in possible_files]}")
 
     examples = []
     with open(jsonl_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            if line.strip():
-                examples.append(json.loads(line))
+        # Try loading as JSONL (one JSON object per line)
+        content = f.read()
 
+        # Check if it's a single JSON array
+        if content.strip().startswith('['):
+            # It's a JSON array file
+            examples = json.loads(content)
+        else:
+            # It's a JSONL file (one JSON object per line)
+            for line in content.split('\n'):
+                if line.strip():
+                    examples.append(json.loads(line))
+
+    print(f"  Found file: {jsonl_path}")
     return examples
 
 
