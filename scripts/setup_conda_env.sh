@@ -191,7 +191,7 @@ for module, name in packages.items():
         errors.append(name)
 
 if errors:
-    print(f'\n缺少以下依赖: {', '.join(errors)}')
+    print(f'\n缺少以下依赖: {", ".join(errors)}')
     sys.exit(1)
 else:
     print('\n✓ 所有核心库已安装')
