@@ -1,6 +1,7 @@
 
 # 1229312 1568000
-MAX_PIXELS=1229312 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 swift sft \
+# Modified for 4x A800 GPUs
+MAX_PIXELS=1229312 CUDA_VISIBLE_DEVICES=4,5,6,7 swift sft \
 --model /data/coding/llm_model/Qwen/Qwen2___5-VL-32B-Instruct \
 --dataset /data/coding/train_b_dataset_for_image_0801.jsonl \
 --train_type lora \
