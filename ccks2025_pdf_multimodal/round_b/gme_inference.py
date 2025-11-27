@@ -15,7 +15,8 @@ from warnings import filterwarnings
 # 过滤掉一些警告
 filterwarnings("ignore")
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+# 注释掉硬编码的GPU设置，让调用者通过环境变量控制
+# os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 IMAGE_FACTOR = 28
 MIN_PIXELS = 4 * 28 * 28
 MAX_PIXELS = 1568*28*28  # 1280 * 28 * 28

@@ -39,14 +39,39 @@ def pdf_to_jpg(args):
         return False
 
 
-def convert_pdfs_to_images(base_dir, num_workers=8):
+def convert_pdfs_to_images(base_dir, num_workers=8, force=False):
     """多进程并行转换PDF为图片"""
     print(f"\n{'='*60}")
     print(f"步骤1: PDF转JPG (使用{num_workers}个进程)")
     print(f"{'='*60}")
 
+    # 检查pdf_img目录是否已存在
+    pdf_img_dir = base_dir + '/pdf_img/'
+    if os.path.exists(pdf_img_dir) and not force:
+        existing_pdfs = [x for x in os.listdir(pdf_img_dir) if os.path.isdir(pdf_img_dir + x)]
+        if len(existing_pdfs) > 0:
+            print(f"⚠ 发现已存在 {len(existing_pdfs)} 个PDF的图片目录")
+            print(f"✓ 跳过PDF转JPG步骤（使用 --force-convert 强制重新转换）\n")
+            return
+
     pdf_file_list = [x for x in os.listdir(base_dir + '/documents/') if 'pdf' in x]
     print(f"找到 {len(pdf_file_list)} 个PDF文件")
+
+    # 过滤掉已经转换过的PDF
+    if not force:
+        remaining_pdfs = []
+        for pdf in pdf_file_list:
+            pdf_name = pdf.split('.')[0]
+            if not os.path.exists(pdf_img_dir + pdf_name):
+                remaining_pdfs.append(pdf)
+
+        if len(remaining_pdfs) == 0:
+            print(f"✓ 所有PDF都已转换，跳过此步骤\n")
+            return
+
+        if len(remaining_pdfs) < len(pdf_file_list):
+            print(f"只需转换 {len(remaining_pdfs)}/{len(pdf_file_list)} 个PDF")
+            pdf_file_list = remaining_pdfs
 
     # 使用多进程处理
     pool = mp.Pool(processes=num_workers)
@@ -226,41 +251,54 @@ def generate_question_vectors(base_dir, jsonl_file, gpu_id=0):
     return question_vectors
 
 
-def process_dataset(base_dir, dataset_name, gpu_ids, num_workers=8):
+def process_dataset(base_dir, dataset_name, gpu_ids, num_workers=8, force_convert=False, skip_vector=False):
     """处理单个数据集（train或test）"""
     print(f"\n{'#'*60}")
     print(f"# 处理 {dataset_name.upper()} 数据集")
     print(f"# 路径: {base_dir}")
     print(f"{'#'*60}")
 
-    # 步骤1: PDF转JPG（多进程）
-    convert_pdfs_to_images(base_dir, num_workers)
-
-    # 步骤2: 生成图片向量（多GPU）
-    img_vectors, page_nums, file_names = generate_image_vectors_multigpu(base_dir, gpu_ids)
-
-    # 保存图片向量和映射关系
-    img_page_num_mapping = pd.DataFrame({
-        'index': range(len(page_nums)),
-        'page_num': page_nums,
-        'file_name': file_names
-    })
+    # 步骤1: PDF转JPG（多进程） - 可以跳过
+    if not skip_vector:  # 如果要生成向量，必须确保图片存在
+        convert_pdfs_to_images(base_dir, num_workers, force=force_convert)
 
     output_prefix = f'{dataset_name}_b'
-    np.save(f'{output_prefix}_pdf_img_vectors.npy', img_vectors)
-    img_page_num_mapping.to_csv(f'{output_prefix}_pdf_img_page_num_mapping.csv', index=False)
+    vector_file = f'{output_prefix}_pdf_img_vectors.npy'
+    mapping_file = f'{output_prefix}_pdf_img_page_num_mapping.csv'
+    question_file = f'all_{output_prefix}_question_vectors.npy'
 
-    print(f"✓ 已保存: {output_prefix}_pdf_img_vectors.npy")
-    print(f"✓ 已保存: {output_prefix}_pdf_img_page_num_mapping.csv")
+    # 步骤2: 生成图片向量（多GPU） - 可以跳过
+    if not skip_vector and not os.path.exists(vector_file):
+        img_vectors, page_nums, file_names = generate_image_vectors_multigpu(base_dir, gpu_ids)
+
+        # 保存图片向量和映射关系
+        img_page_num_mapping = pd.DataFrame({
+            'index': range(len(page_nums)),
+            'page_num': page_nums,
+            'file_name': file_names
+        })
+
+        np.save(vector_file, img_vectors)
+        img_page_num_mapping.to_csv(mapping_file, index=False)
+
+        print(f"✓ 已保存: {vector_file}")
+        print(f"✓ 已保存: {mapping_file}")
+    elif os.path.exists(vector_file):
+        print(f"\n⚠ 图片向量文件已存在: {vector_file}")
+        print(f"✓ 跳过图片向量生成（使用 --force-vector 强制重新生成）\n")
 
     # 步骤3: 生成问题向量（单GPU）
     jsonl_file = base_dir + f'/{dataset_name}.jsonl'
     if os.path.exists(jsonl_file):
-        question_vectors = generate_question_vectors(base_dir, jsonl_file, gpu_ids[0])
+        if not os.path.exists(question_file):
+            question_vectors = generate_question_vectors(base_dir, jsonl_file, gpu_ids[0])
 
-        # 保存问题向量
-        np.save(f'all_{output_prefix}_question_vectors.npy', question_vectors)
-        print(f"✓ 已保存: all_{output_prefix}_question_vectors.npy")
+            # 保存问题向量
+            np.save(question_file, question_vectors)
+            print(f"✓ 已保存: {question_file}")
+        else:
+            print(f"⚠ 问题向量文件已存在: {question_file}")
+            print(f"✓ 跳过问题向量生成\n")
     else:
         print(f"⚠ 未找到 {jsonl_file}，跳过问题向量生成")
 
@@ -280,6 +318,12 @@ def main():
     parser.add_argument('--dataset', type=str, default='both',
                         choices=['train', 'test', 'both'],
                         help='处理哪个数据集')
+    parser.add_argument('--force-convert', action='store_true',
+                        help='强制重新转换PDF为图片')
+    parser.add_argument('--skip-pdf-convert', action='store_true',
+                        help='跳过PDF转JPG步骤（假设图片已存在）')
+    parser.add_argument('--only-convert', action='store_true',
+                        help='只转换PDF为图片，不生成向量')
 
     args = parser.parse_args()
 
@@ -292,16 +336,30 @@ def main():
     print(f"使用GPU: {gpu_ids}")
     print(f"PDF转JPG进程数: {args.num_workers}")
     print(f"处理数据集: {args.dataset}")
+    if args.force_convert:
+        print(f"强制重新转换PDF: 是")
+    if args.skip_pdf_convert:
+        print(f"跳过PDF转换: 是")
+    if args.only_convert:
+        print(f"仅PDF转换: 是")
 
     # 处理训练集
     if args.dataset in ['train', 'both']:
         os.chdir('/usr/yuque/guo/pdf_processer/ccks2025_pdf_multimodal/round_b')
-        process_dataset(args.train_dir, 'train', gpu_ids, args.num_workers)
+        process_dataset(
+            args.train_dir, 'train', gpu_ids, args.num_workers,
+            force_convert=args.force_convert,
+            skip_vector=args.only_convert
+        )
 
     # 处理测试集
     if args.dataset in ['test', 'both']:
         os.chdir('/usr/yuque/guo/pdf_processer/ccks2025_pdf_multimodal/round_b')
-        process_dataset(args.test_dir, 'test', gpu_ids, args.num_workers)
+        process_dataset(
+            args.test_dir, 'test', gpu_ids, args.num_workers,
+            force_convert=args.force_convert,
+            skip_vector=args.only_convert
+        )
 
     print(f"\n{'='*60}")
     print(f"✓ 全部完成！")
