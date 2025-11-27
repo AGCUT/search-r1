@@ -18,7 +18,7 @@
 # ============================================================================
 # GPU Configuration
 # ============================================================================
-export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 # ============================================================================
 # Data Configuration
@@ -29,7 +29,7 @@ export DATA_DIR='data/qrecc_plan_b'
 # Model Configuration
 # ============================================================================
 # Primary model: Qwen3-4B
-export BASE_MODEL='Qwen/Qwen3-4B'
+export BASE_MODEL='/home/yuque2/chris/qwen3-4b'
 export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen3-4b-em'
 
 # Alternative models (uncomment to use):
