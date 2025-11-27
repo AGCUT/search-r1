@@ -18,8 +18,8 @@
 # ============================================================================
 # GPU Configuration
 # ============================================================================
-# Using 4x A800 GPUs (adjusted from 8 GPUs)
-export CUDA_VISIBLE_DEVICES=4,5,6,7
+# Using 3x A800 GPUs for training (GPU 4 reserved for E5 retrieval server)
+export CUDA_VISIBLE_DEVICES=5,6,7
 
 # ============================================================================
 # Data Configuration
@@ -114,7 +114,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     +trainer.val_only=false \
     +trainer.val_before_train=true \
     trainer.default_hdfs_dir=null \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=3 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=50 \
