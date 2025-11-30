@@ -4,6 +4,8 @@
 构造微调训练集脚本
 将预处理的向量数据转换为模型微调所需的训练数据格式
 
+支持问答题格式（无选项）
+
 使用方法: python build_finetune_dataset.py --base-dir /path/to/train
 """
 
@@ -25,6 +27,10 @@ def load_data(base_dir, data_prefix='train_b'):
     df_question = pd.read_json(question_file, lines=True)
     print(f"  - 问题数量: {len(df_question)}")
 
+    # 检查数据格式（选择题还是问答题）
+    has_options = 'options' in df_question.columns
+    print(f"  - 数据类型: {'选择题' if has_options else '问答题'}")
+
     # 加载问题向量
     question_vector_file = f'all_{data_prefix}_question_vectors.npy'
     question_vector = np.load(question_vector_file)
@@ -37,7 +43,7 @@ def load_data(base_dir, data_prefix='train_b'):
     pdf_image_page_num_mapping = pd.read_csv(img_mapping_file)
     print(f"  - 图片向量: {pdf_image_vectors.shape}")
 
-    return df_question, question_vector, pdf_image_vectors, pdf_image_page_num_mapping
+    return df_question, question_vector, pdf_image_vectors, pdf_image_page_num_mapping, has_options
 
 
 def get_similar_image_embedding(df_question, pdf_image_page_num_mapping, pdf_image_vectors,
@@ -66,15 +72,39 @@ def get_similar_image_embedding(df_question, pdf_image_page_num_mapping, pdf_ima
     return retrived_page_num
 
 
+def build_qa_prompt(question, options=None):
+    """
+    构建问答prompt
+
+    Args:
+        question: 问题文本
+        options: 选项列表（可选，问答题时为None）
+
+    Returns:
+        prompt前缀和后缀
+    """
+    if options:
+        # 选择题格式
+        prompt_prefix = "你是一个专利内容分析专家，请根据我提供的专利内容回答我的单选题。\n"
+        prompt_prefix += f"【我的问题】【{question}】\n"
+        prompt_prefix += f"【选项】【{' '.join(options)}】\n"
+        prompt_prefix += "专利内容为：\n"
+        prompt_suffix = "\n\n请你分析专利内容后，回答我的单选题，直接回答正确选项字母，你的答案为：\n"
+    else:
+        # 问答题格式
+        prompt_prefix = "你是一个专利内容分析专家，请根据我提供的专利内容回答问题。\n"
+        prompt_prefix += f"【问题】{question}\n"
+        prompt_prefix += "【专利内容】\n"
+        prompt_suffix = "\n\n请根据以上专利内容，简洁准确地回答问题：\n"
+
+    return prompt_prefix, prompt_suffix
+
+
 def get_image_answer(base_dir, df_question, pdf_image_page_num_mapping, pdf_image_vectors,
-                     question_vector, document_name, question, options, question_idx, top_k=2):
-    """构造纯图像问答的训练样本"""
-    question1 = "你是一个专利内容分析专家，请根据我提供的专利内容回答我的单选题。\n"
-    question1 += "【我的问题】【"
-    question1 += (question + "】\n")
-    question1 += "【选项】【"
-    question1 += (' '.join(options) + "】\n")
-    question1 += ("专利内容为：\n")
+                     question_vector, document_name, question, question_idx, options=None, top_k=2):
+    """构造图像问答的训练样本"""
+
+    prompt_prefix, prompt_suffix = build_qa_prompt(question, options)
 
     retrived_page_list = get_similar_image_embedding(
         df_question, pdf_image_page_num_mapping, pdf_image_vectors,
@@ -95,25 +125,32 @@ def get_image_answer(base_dir, df_question, pdf_image_page_num_mapping, pdf_imag
     if len(retrived_list) == 0:
         return None, []
 
-    question2 = "\n\n请你分析专利内容后，回答我的单选题，直接回答正确选项字母，你的答案为：\n"
-
-    query = question1
+    query = prompt_prefix
     for _ in retrived_list:
         query += '<image>'
-    query += question2
+    query += prompt_suffix
 
     return query, retrived_list
 
 
 def get_mix_answer_img(base_dir, df_question, pdf_image_page_num_mapping, pdf_image_vectors,
-                       question_vector, document_name, pic_page_num, question, options, question_idx, top_k=2):
+                       question_vector, document_name, pic_page_num, question, question_idx,
+                       options=None, top_k=2):
     """构造混合图像问答的训练样本（问题指向特定页面+召回相似页面）"""
-    question1 = "你是一个专利内容分析专家，请根据我提供的专利内容回答我的问题。\n"
-    question1 += "【我的问题】【"
-    question1 += (question + "】\n")
-    question1 += "【选项】【"
-    question1 += (' '.join(options) + "】\n")
-    question1 += ("该问题直接指向的专利页内容为：\n")
+
+    if options:
+        # 选择题格式
+        question1 = "你是一个专利内容分析专家，请根据我提供的专利内容回答我的问题。\n"
+        question1 += f"【我的问题】【{question}】\n"
+        question1 += f"【选项】【{' '.join(options)}】\n"
+        question1 += "该问题直接指向的专利页内容为：\n"
+        question3 = "\n\n请你分析专利内容后，回答我的单选题，直接回答正确选项字母，你的答案为：\n"
+    else:
+        # 问答题格式
+        question1 = "你是一个专利内容分析专家，请根据我提供的专利内容回答问题。\n"
+        question1 += f"【问题】{question}\n"
+        question1 += "【该问题指向的专利页内容】\n"
+        question3 = "\n\n请根据以上专利内容，简洁准确地回答问题：\n"
 
     retrived_page_list = get_similar_image_embedding(
         df_question, pdf_image_page_num_mapping, pdf_image_vectors,
@@ -128,8 +165,7 @@ def get_mix_answer_img(base_dir, df_question, pdf_image_page_num_mapping, pdf_im
         if os.path.exists(image_file):
             retrived_list.append(image_file)
 
-    question2 = "\n\n除了问题直接指向的专利页外，该专利其他相关内容为：\n"
-    question3 = "\n\n请你分析专利内容后，回答我的单选题，直接回答正确选项字母，你的答案为：\n"
+    question2 = "\n【其他相关专利内容】\n"
 
     # 问题指向的图片
     main_image = os.path.join(base_dir, 'pdf_img', document_name.split('.')[0], f'{pic_page_num}.jpg')
@@ -162,7 +198,7 @@ def build_dataset(base_dir, output_dir='.', data_prefix='train_b'):
     """构建训练数据集"""
 
     # 加载数据
-    df_question, question_vector, pdf_image_vectors, pdf_image_page_num_mapping = load_data(
+    df_question, question_vector, pdf_image_vectors, pdf_image_page_num_mapping, has_options = load_data(
         base_dir, data_prefix
     )
 
@@ -182,8 +218,10 @@ def build_dataset(base_dir, output_dir='.', data_prefix='train_b'):
     for i in trange(len(df_question), desc="构建训练样本"):
         question = df_question.loc[i, 'question']
         document_name = df_question.loc[i, 'document']
-        options = df_question.loc[i, 'options']
         true_answer = df_question.loc[i, 'answer']
+
+        # 获取选项（如果有的话）
+        options = df_question.loc[i, 'options'] if has_options else None
 
         # 判断问题类型
         if "第" in question and "页" in question:
@@ -193,18 +231,18 @@ def build_dataset(base_dir, output_dir='.', data_prefix='train_b'):
                 pic_page_num = int(page_match[0])
                 query, images = get_mix_answer_img(
                     base_dir, df_question, pdf_image_page_num_mapping, pdf_image_vectors,
-                    question_vector, document_name, pic_page_num, question, options, i
+                    question_vector, document_name, pic_page_num, question, i, options
                 )
             else:
                 query, images = get_image_answer(
                     base_dir, df_question, pdf_image_page_num_mapping, pdf_image_vectors,
-                    question_vector, document_name, question, options, i
+                    question_vector, document_name, question, i, options
                 )
         else:
             # 普通问题，使用图像召回
             query, images = get_image_answer(
                 base_dir, df_question, pdf_image_page_num_mapping, pdf_image_vectors,
-                question_vector, document_name, question, options, i
+                question_vector, document_name, question, i, options
             )
 
         if query is None or len(images) == 0:
