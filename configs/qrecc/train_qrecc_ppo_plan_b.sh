@@ -29,13 +29,13 @@ export DATA_DIR='data/qrecc_plan_b'
 # ============================================================================
 # Model Configuration
 # ============================================================================
-# Primary model: Qwen3-4B
-export BASE_MODEL='/usr/yuque/guo/models/qwen2.5-3b'
-export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen2.5-3b-em'
+# Primary model: Qwen2.5-3B-Instruct (ChatML 格式)
+export BASE_MODEL='/usr/yuque/guo/models/qwen2.5-3b-instruct'
+export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen2.5-3b-instruct-em'
 
-# Alternative models (uncomment to use):
-# export BASE_MODEL='Qwen/Qwen3-4B-Instruct'
-# export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen3-4b-it-em'
+# Alternative models:
+# export BASE_MODEL='/usr/yuque/guo/models/qwen2.5-3b'  # Base 版本（不推荐）
+# export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen2.5-3b-em'
 
 # export BASE_MODEL='meta-llama/Llama-3.2-3B'
 # export EXPERIMENT_NAME='qrecc-plan-b-ppo-llama3.2-3b-em'
@@ -76,7 +76,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.max_prompt_length=4096 \
     data.max_response_length=500 \
     data.max_start_length=2048 \
-    data.max_obs_length=500 \
+    data.max_obs_length=800 \
     data.shuffle_train_dataloader=True \
     algorithm.adv_estimator=gae \
     actor_rollout_ref.model.path=$BASE_MODEL \
@@ -97,6 +97,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.n_agent=1 \
     actor_rollout_ref.rollout.temperature=1 \
+    actor_rollout_ref.rollout.repetition_penalty=1.1 \
     actor_rollout_ref.actor.state_masking=true \
     critic.optim.lr=1e-5 \
     critic.model.use_remove_padding=True \
