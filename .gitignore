@@ -122,3 +122,6 @@ data/
 log/
 
 **logs
+
+train.out
+train.pid
