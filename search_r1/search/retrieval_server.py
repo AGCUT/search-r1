@@ -16,13 +16,25 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 def load_corpus(corpus_path: str):
-    corpus = datasets.load_dataset(
-        'json', 
-        data_files=corpus_path,
-        split="train",
-        num_proc=4
-    )
-    return corpus
+    """加载语料库到内存字典，加速文档访问"""
+    corpus_dict = {}
+    print(f"Loading corpus from {corpus_path}...")
+    import time
+    start_time = time.time()
+
+    with open(corpus_path, 'r') as f:
+        for idx, line in enumerate(f):
+            doc = json.loads(line)
+            corpus_dict[idx] = doc
+
+            # 每100万条显示进度
+            if (idx + 1) % 1000000 == 0:
+                print(f"  Loaded {idx + 1:,} documents...")
+
+    elapsed = time.time() - start_time
+    print(f"Loaded {len(corpus_dict):,} documents in {elapsed:.1f} seconds")
+    print(f"Memory usage: ~{len(corpus_dict) * 1000 / (1024**2):.0f} MB estimated")
+    return corpus_dict
 
 def read_jsonl(file_path):
     data = []
@@ -31,17 +43,59 @@ def read_jsonl(file_path):
             data.append(json.loads(line))
     return data
 
-def load_docs(corpus, doc_idxs):
-    results = [corpus[int(idx)] for idx in doc_idxs]
-    return results
+def load_docs(corpus, doc_idxs, docid_to_idx=None):
+    """
+    加载文档，过滤无效索引
 
-def load_model(model_path: str, use_fp16: bool = False):
+    Args:
+        corpus: 语料库字典 (int -> doc)
+        doc_idxs: 文档索引列表（可能是整数或字符串）
+        docid_to_idx: 可选的 docid -> 行号映射字典（用于 BM25）
+
+    Returns:
+        results: 有效文档列表
+        valid_indices: 有效文档在原始列表中的位置（用于同步过滤得分）
+    """
+    results = []
+    valid_indices = []
+
+    for i, idx in enumerate(doc_idxs):
+        doc = None
+
+        # 尝试直接转换为整数（FAISS 的情况）
+        try:
+            idx_int = int(idx)
+            if idx_int >= 0:  # FAISS 在找不到邻居时返回 -1
+                doc = corpus.get(idx_int)
+        except (ValueError, TypeError):
+            # 不是整数，尝试通过 docid_to_idx 映射（BM25 的情况）
+            if docid_to_idx is not None and idx in docid_to_idx:
+                idx_int = docid_to_idx[idx]
+                doc = corpus.get(idx_int)
+
+        # 只添加有效文档
+        if doc is not None:
+            results.append(doc)
+            valid_indices.append(i)
+
+    return results, valid_indices
+
+def load_model(model_path: str, use_fp16: bool = False, use_cuda: bool = True):
+    """加载模型，支持 CPU 和 GPU"""
     model_config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
     model = AutoModel.from_pretrained(model_path, trust_remote_code=True)
     model.eval()
-    model.cuda()
-    if use_fp16: 
-        model = model.half()
+
+    # 检测 CUDA 可用性
+    if use_cuda and torch.cuda.is_available():
+        model = model.cuda()
+        if use_fp16:
+            model = model.half()
+    else:
+        if use_cuda:
+            print("Warning: CUDA not available, using CPU for model")
+        # CPU 模式下不使用 fp16（CPU 不支持 half）
+
     tokenizer = AutoTokenizer.from_pretrained(model_path, use_fast=True, trust_remote_code=True)
     return model, tokenizer
 
@@ -68,9 +122,11 @@ class Encoder:
         self.pooling_method = pooling_method
         self.max_length = max_length
         self.use_fp16 = use_fp16
+        self.use_cuda = torch.cuda.is_available()
 
-        self.model, self.tokenizer = load_model(model_path=model_path, use_fp16=use_fp16)
+        self.model, self.tokenizer = load_model(model_path=model_path, use_fp16=use_fp16, use_cuda=self.use_cuda)
         self.model.eval()
+        self.device = next(self.model.parameters()).device  # 获取模型所在设备
 
     @torch.no_grad()
     def encode(self, query_list: List[str], is_query=True) -> np.ndarray:
@@ -94,7 +150,8 @@ class Encoder:
                                 truncation=True,
                                 return_tensors="pt"
                                 )
-        inputs = {k: v.cuda() for k, v in inputs.items()}
+        # 将输入移到模型所在的设备（CPU 或 GPU）
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         if "T5" in type(self.model).__name__:
             # T5-based retrieval model
@@ -116,9 +173,11 @@ class Encoder:
 
         query_emb = query_emb.detach().cpu().numpy()
         query_emb = query_emb.astype(np.float32, order="C")
-        
+
         del inputs, output
-        torch.cuda.empty_cache()
+        # 只在 CUDA 可用时清空缓存
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         return query_emb
 
@@ -151,10 +210,35 @@ class BM25Retriever(BaseRetriever):
         self.contain_doc = self._check_contain_doc()
         if not self.contain_doc:
             self.corpus = load_corpus(self.corpus_path)
+            # 构建 docid -> 行号的映射
+            # 假设 corpus 的 id 字段对应 Pyserini 的 docid
+            self.docid_to_idx = {}
+            print("Building docid -> index mapping for BM25...")
+            for idx, doc in self.corpus.items():
+                if 'id' in doc:
+                    self.docid_to_idx[doc['id']] = idx
+                # 同时支持直接用字符串化的行号作为 docid
+                self.docid_to_idx[str(idx)] = idx
+            print(f"Built mapping for {len(self.docid_to_idx)} docids")
+        else:
+            self.corpus = None
+            self.docid_to_idx = None
         self.max_process_num = 8
-    
+
     def _check_contain_doc(self):
-        return self.searcher.doc(0).raw() is not None
+        """检查索引是否包含原始文档内容"""
+        try:
+            # 先做一次搜索获取真实的 docid
+            test_hits = self.searcher.search("test", 1)
+            if len(test_hits) == 0:
+                # 索引为空或无法搜索，假设不含文档
+                return False
+            # 使用搜索返回的真实 docid
+            test_docid = test_hits[0].docid
+            doc = self.searcher.doc(test_docid)
+            return doc is not None and doc.raw() is not None
+        except:
+            return False
 
     def _search(self, query: str, num: int = None, return_score: bool = False):
         if num is None:
@@ -165,6 +249,7 @@ class BM25Retriever(BaseRetriever):
                 return [], []
             else:
                 return []
+
         scores = [hit.score for hit in hits]
         if len(hits) < num:
             warnings.warn('Not enough documents retrieved!')
@@ -172,23 +257,32 @@ class BM25Retriever(BaseRetriever):
             hits = hits[:num]
 
         if self.contain_doc:
-            all_contents = [
-                json.loads(self.searcher.doc(hit.docid).raw())['contents'] 
-                for hit in hits
-            ]
-            results = [
-                {
-                    'title': content.split("\n")[0].strip("\""),
-                    'text': "\n".join(content.split("\n")[1:]),
-                    'contents': content
-                } 
-                for content in all_contents
-            ]
+            # 索引包含原文，直接从索引读取
+            results = []
+            valid_scores = []
+            for hit, score in zip(hits, scores):
+                try:
+                    raw = self.searcher.doc(hit.docid).raw()
+                    if raw is not None:
+                        content = json.loads(raw)['contents']
+                        results.append({
+                            'title': content.split("\n")[0].strip("\""),
+                            'text': "\n".join(content.split("\n")[1:]),
+                            'contents': content
+                        })
+                        valid_scores.append(score)
+                except:
+                    # 跳过无法解析的文档
+                    continue
         else:
-            results = load_docs(self.corpus, [hit.docid for hit in hits])
+            # 索引不包含原文，从外部语料加载
+            docids = [hit.docid for hit in hits]
+            results, valid_indices = load_docs(self.corpus, docids, self.docid_to_idx)
+            # 同步过滤得分
+            valid_scores = [scores[i] for i in valid_indices]
 
         if return_score:
-            return results, scores
+            return results, valid_scores
         else:
             return results
 
@@ -213,21 +307,37 @@ class DenseRetriever(BaseRetriever):
             ngpus = faiss.get_num_gpus()
             print(f"Found {ngpus} GPUs for faiss")
 
-            # 为每个 GPU 创建资源对象，限制临时显存
-            gpu_resources = []
-            for i in range(ngpus):
-                res = faiss.StandardGpuResources()
-                # 每张卡分配 40GB 临时显存（对于 A800 80GB）
-                res.setTempMemory(40 * 1024 * 1024 * 1024)
-                gpu_resources.append(res)
+            if ngpus == 0:
+                print("Warning: faiss_gpu=True but no GPU available, falling back to CPU")
+            elif ngpus > 0:
+                # 为每个 GPU 创建资源对象，限制临时显存
+                gpu_resources = []
 
-            co = faiss.GpuMultipleClonerOptions()
-            co.useFloat16 = True
-            co.shard = True  # 启用分片，将索引分布到多个 GPU
+                # 动态计算临时显存大小：假设每张 GPU 有 80GB，预留 20GB 给其他用途
+                # 用户可以通过环境变量 FAISS_GPU_TEMP_MEM_GB 自定义
+                temp_mem_gb = int(os.environ.get('FAISS_GPU_TEMP_MEM_GB', '40'))
+                temp_mem_bytes = temp_mem_gb * 1024 * 1024 * 1024
+                print(f"Setting temp memory per GPU: {temp_mem_gb} GB")
 
-            # 将索引分片到多个 GPU
-            print(f"Sharding index to {ngpus} GPUs...")
-            self.index = faiss.index_cpu_to_gpu_multiple_py(gpu_resources, self.index, co)
+                for i in range(ngpus):
+                    res = faiss.StandardGpuResources()
+                    res.setTempMemory(temp_mem_bytes)
+                    gpu_resources.append(res)
+
+                # 将索引加载到 GPU
+                if ngpus == 1:
+                    print(f"Loading index to single GPU...")
+                    # 单 GPU 使用 GpuClonerOptions（faiss.index_cpu_to_gpu 只接受该类型）
+                    co_single = faiss.GpuClonerOptions()
+                    co_single.useFloat16 = True
+                    self.index = faiss.index_cpu_to_gpu(gpu_resources[0], 0, self.index, co_single)
+                else:
+                    print(f"Sharding index to {ngpus} GPUs...")
+                    # 多 GPU 使用 GpuMultipleClonerOptions
+                    co_multi = faiss.GpuMultipleClonerOptions()
+                    co_multi.useFloat16 = True
+                    co_multi.shard = True
+                    self.index = faiss.index_cpu_to_gpu_multiple_py(gpu_resources, self.index, co_multi)
 
         self.corpus = load_corpus(self.corpus_path)
         self.encoder = Encoder(
@@ -247,9 +357,12 @@ class DenseRetriever(BaseRetriever):
         scores, idxs = self.index.search(query_emb, k=num)
         idxs = idxs[0]
         scores = scores[0]
-        results = load_docs(self.corpus, idxs)
+        # load_docs 返回 (results, valid_indices)
+        results, valid_indices = load_docs(self.corpus, idxs)
+        # 同步过滤得分
+        valid_scores = [scores[i] for i in valid_indices]
         if return_score:
-            return results, scores.tolist()
+            return results, valid_scores
         else:
             return results
 
@@ -258,7 +371,7 @@ class DenseRetriever(BaseRetriever):
             query_list = [query_list]
         if num is None:
             num = self.topk
-        
+
         results = []
         scores = []
         for start_idx in tqdm(range(0, len(query_list), self.batch_size), desc='Retrieval process: '):
@@ -268,18 +381,20 @@ class DenseRetriever(BaseRetriever):
             batch_scores = batch_scores.tolist()
             batch_idxs = batch_idxs.tolist()
 
-            # load_docs is not vectorized, but is a python list approach
-            flat_idxs = sum(batch_idxs, [])
-            batch_results = load_docs(self.corpus, flat_idxs)
-            # chunk them back
-            batch_results = [batch_results[i*num : (i+1)*num] for i in range(len(batch_idxs))]
-            
-            results.extend(batch_results)
-            scores.extend(batch_scores)
-            
-            del batch_emb, batch_scores, batch_idxs, query_batch, flat_idxs, batch_results
-            torch.cuda.empty_cache()
-            
+            # 对每个查询分别处理，过滤无效文档并同步调整得分
+            for query_idxs, query_scores in zip(batch_idxs, batch_scores):
+                # load_docs 返回 (results, valid_indices)
+                query_results, valid_indices = load_docs(self.corpus, query_idxs)
+                # 同步过滤得分
+                query_valid_scores = [query_scores[i] for i in valid_indices]
+                results.append(query_results)
+                scores.append(query_valid_scores)
+
+            del batch_emb, batch_scores, batch_idxs, query_batch
+            # 只在 CUDA 可用时清空缓存
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         if return_score:
             return results, scores
         else:
@@ -337,6 +452,38 @@ class QueryRequest(BaseModel):
 
 
 app = FastAPI()
+
+# 全局变量，在 startup 时初始化
+config = None
+retriever = None
+
+@app.on_event("startup")
+async def startup_event():
+    """FastAPI startup 事件：初始化配置和检索器"""
+    global config, retriever
+
+    # 如果已经通过 __main__ 初始化，则跳过
+    if config is not None and retriever is not None:
+        return
+
+    # 从环境变量读取配置（支持 uvicorn 直接启动）
+    import os
+    config = Config(
+        retrieval_method=os.environ.get('RETRIEVAL_METHOD', 'e5'),
+        index_path=os.environ.get('INDEX_PATH', './data/wiki-corpus/e5_Flat.index'),
+        corpus_path=os.environ.get('CORPUS_PATH', './data/wiki-corpus/wiki-18.jsonl'),
+        retrieval_topk=int(os.environ.get('RETRIEVAL_TOPK', '3')),
+        faiss_gpu=os.environ.get('FAISS_GPU', 'false').lower() == 'true',
+        retrieval_model_path=os.environ.get('RETRIEVAL_MODEL', 'intfloat/e5-base-v2'),
+        retrieval_pooling_method='mean',
+        retrieval_query_max_length=256,
+        retrieval_use_fp16=True,
+        retrieval_batch_size=512,
+    )
+
+    print("Initializing retriever...")
+    retriever = get_retriever(config)
+    print("Retriever initialized successfully")
 
 @app.post("/retrieve")
 def retrieve_endpoint(request: QueryRequest):
