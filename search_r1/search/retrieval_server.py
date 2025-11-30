@@ -385,7 +385,8 @@ class DenseRetriever(BaseRetriever):
         scores = []
 
         # 为了避免 FAISS GPU 显存不足，每次只编码和搜索少量查询
-        encode_batch = 4  # E5 编码批次大小
+        # 降低批次大小以应对大批量请求（validation时可能有60+查询）
+        encode_batch = 2  # E5 编码批次大小（从4降到2）
         search_batch = 1  # FAISS 搜索批次大小（每次只搜索1个）
 
         for start_idx in tqdm(range(0, len(query_list), encode_batch), desc='Retrieval process: '):

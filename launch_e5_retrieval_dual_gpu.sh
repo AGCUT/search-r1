@@ -23,6 +23,10 @@ RETRIEVER_MODEL=intfloat/e5-base-v2
 # Top-k documents to retrieve
 TOPK=3
 
+# FAISS GPU temporary memory (GB per GPU)
+# 降低临时内存限制以避免大批量请求时OOM
+export FAISS_GPU_TEMP_MEM_GB=40
+
 echo "============================================================================"
 echo "Starting E5 Dense Retrieval Server with Dual GPU"
 echo "============================================================================"
