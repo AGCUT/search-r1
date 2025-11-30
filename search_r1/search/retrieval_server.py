@@ -313,6 +313,10 @@ class DenseRetriever(BaseRetriever):
     def __init__(self, config):
         super().__init__(config)
         self.index = faiss.read_index(self.index_path)
+
+        # 保存GPU资源引用，防止被垃圾回收
+        self.gpu_resources = []
+
         if config.faiss_gpu:
             # 创建多 GPU 资源配置
             ngpus = faiss.get_num_gpus()
@@ -321,9 +325,6 @@ class DenseRetriever(BaseRetriever):
             if ngpus == 0:
                 print("Warning: faiss_gpu=True but no GPU available, falling back to CPU")
             elif ngpus > 0:
-                # 为每个 GPU 创建资源对象，限制临时显存
-                gpu_resources = []
-
                 # 动态计算临时显存大小：假设每张 GPU 有 80GB，预留 20GB 给其他用途
                 # 用户可以通过环境变量 FAISS_GPU_TEMP_MEM_GB 自定义
                 temp_mem_gb = int(os.environ.get('FAISS_GPU_TEMP_MEM_GB', '30'))
@@ -333,7 +334,7 @@ class DenseRetriever(BaseRetriever):
                 for i in range(ngpus):
                     res = faiss.StandardGpuResources()
                     res.setTempMemory(temp_mem_bytes)
-                    gpu_resources.append(res)
+                    self.gpu_resources.append(res)
 
                 # 将索引加载到 GPU
                 if ngpus == 1:
@@ -341,14 +342,14 @@ class DenseRetriever(BaseRetriever):
                     # 单 GPU 使用 GpuClonerOptions（faiss.index_cpu_to_gpu 只接受该类型）
                     co_single = faiss.GpuClonerOptions()
                     co_single.useFloat16 = True
-                    self.index = faiss.index_cpu_to_gpu(gpu_resources[0], 0, self.index, co_single)
+                    self.index = faiss.index_cpu_to_gpu(self.gpu_resources[0], 0, self.index, co_single)
                 else:
                     print(f"Sharding index to {ngpus} GPUs...")
                     # 多 GPU 使用 GpuMultipleClonerOptions
                     co_multi = faiss.GpuMultipleClonerOptions()
                     co_multi.useFloat16 = True
                     co_multi.shard = True
-                    self.index = faiss.index_cpu_to_gpu_multiple_py(gpu_resources, self.index, co_multi)
+                    self.index = faiss.index_cpu_to_gpu_multiple_py(self.gpu_resources, self.index, co_multi)
 
         self.corpus = load_corpus(self.corpus_path)
         self.encoder = Encoder(
@@ -411,14 +412,16 @@ class DenseRetriever(BaseRetriever):
                 results.append(query_results)
                 scores.append(query_valid_scores)
 
-                del single_emb, query_scores, query_idxs
-                # 只在 CUDA 可用时清空缓存
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                # 清理临时变量
+                del single_emb, query_scores, query_idxs, query_results, valid_indices, query_valid_scores
 
             del batch_emb, query_batch
 
-        # 激进的内存清理，防止累积泄漏
+            # 每个encode_batch后进行一次gc清理，减少内存碎片
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        # 最终的激进内存清理
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
