@@ -356,7 +356,7 @@ def retrieve_endpoint(request: QueryRequest):
     results, scores = retriever.batch_search(
         query_list=request.queries,
         num=request.topk,
-        return_score=request.return_scores
+        return_score=True
     )
     
     # Format response
