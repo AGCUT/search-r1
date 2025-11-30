@@ -325,7 +325,7 @@ class DenseRetriever(BaseRetriever):
 
                 # 动态计算临时显存大小：假设每张 GPU 有 80GB，预留 20GB 给其他用途
                 # 用户可以通过环境变量 FAISS_GPU_TEMP_MEM_GB 自定义
-                temp_mem_gb = int(os.environ.get('FAISS_GPU_TEMP_MEM_GB', '55'))
+                temp_mem_gb = int(os.environ.get('FAISS_GPU_TEMP_MEM_GB', '30'))
                 temp_mem_bytes = temp_mem_gb * 1024 * 1024 * 1024
                 print(f"Setting temp memory per GPU: {temp_mem_gb} GB")
 
