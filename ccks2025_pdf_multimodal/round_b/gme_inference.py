@@ -172,12 +172,15 @@ class GmeQwen2VL:
             if images is None:
                 image_loader = None
             else:
+                # 减少worker数量，避免在多GPU并行时创建过多进程
+                # 多GPU场景下，每个GPU进程都会创建DataLoader，总worker数 = GPU数 × num_workers
+                num_workers = int(os.environ.get('GME_NUM_WORKERS', '0'))  # 默认0禁用多进程
                 image_loader = DataLoader(
                     images,
                     batch_size=batch_size,
                     shuffle=False,
                     collate_fn=custom_collate_fn,
-                    num_workers=min(math.floor(os.cpu_count() / 2), 8),
+                    num_workers=num_workers,
                 )
 
         if texts is None:
