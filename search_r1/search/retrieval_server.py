@@ -15,6 +15,7 @@ import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
 import asyncio
+import gc
 
 def load_corpus(corpus_path: str):
     """加载语料库到内存字典，加速文档访问"""
@@ -416,6 +417,12 @@ class DenseRetriever(BaseRetriever):
 
             del batch_emb, query_batch
 
+        # 激进的内存清理，防止累积泄漏
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
         if return_score:
             return results, scores
         else:
@@ -546,6 +553,11 @@ async def retrieve_endpoint(request: QueryRequest):
                 resp.append(combined)
             else:
                 resp.append(single_result)
+
+        # 每次请求后清理，防止内存累积
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
         return {"result": resp}
 
