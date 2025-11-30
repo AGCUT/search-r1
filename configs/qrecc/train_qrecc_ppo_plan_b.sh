@@ -18,7 +18,7 @@
 # ============================================================================
 # GPU Configuration
 # ============================================================================
-# Using 3x A800 GPUs for training (GPU 4 reserved for E5 retrieval server)
+# Using 6x A800 GPUs for training (GPU 0,1 reserved for E5 retrieval server)
 export CUDA_VISIBLE_DEVICES=2,3,4,5,6,7
 
 # ============================================================================
@@ -71,8 +71,8 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.val_files=$DATA_DIR/test.parquet \
     data.train_data_num=null \
     data.val_data_num=null \
-    data.train_batch_size=256 \
-    data.val_batch_size=128 \
+    data.train_batch_size=512 \
+    data.val_batch_size=256 \
     data.max_prompt_length=4096 \
     data.max_response_length=500 \
     data.max_start_length=2048 \
@@ -92,7 +92,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size=128 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.ref.log_prob_micro_batch_size=128 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.n_agent=1 \
@@ -114,7 +114,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     +trainer.val_only=false \
     +trainer.val_before_train=true \
     trainer.default_hdfs_dir=null \
-    trainer.n_gpus_per_node=3 \
+    trainer.n_gpus_per_node=6 \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=50 \
