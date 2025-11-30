@@ -14,6 +14,7 @@ import datasets
 import uvicorn
 from fastapi import FastAPI
 from pydantic import BaseModel
+import asyncio
 
 def load_corpus(corpus_path: str):
     """加载语料库到内存字典，加速文档访问"""
@@ -385,8 +386,8 @@ class DenseRetriever(BaseRetriever):
         scores = []
 
         # 为了避免 FAISS GPU 显存不足，每次只编码和搜索少量查询
-        # 降低批次大小以应对大批量请求（validation时可能有60+查询）
-        encode_batch = 2  # E5 编码批次大小（从4降到2）
+        # 多worker并发时可能同时有100+查询，必须设为1确保稳定
+        encode_batch = 1  # E5 编码批次大小（设为1最保守，避免并发OOM）
         search_batch = 1  # FAISS 搜索批次大小（每次只搜索1个）
 
         for start_idx in tqdm(range(0, len(query_list), encode_batch), desc='Retrieval process: '):
@@ -477,6 +478,9 @@ app = FastAPI()
 config = None
 retriever = None
 
+# 并发控制：同时只处理1个检索请求，避免GPU显存OOM
+retrieval_semaphore = asyncio.Semaphore(1)
+
 @app.on_event("startup")
 async def startup_event():
     """FastAPI startup 事件：初始化配置和检索器"""
@@ -506,9 +510,12 @@ async def startup_event():
     print("Retriever initialized successfully")
 
 @app.post("/retrieve")
-def retrieve_endpoint(request: QueryRequest):
+async def retrieve_endpoint(request: QueryRequest):
     """
     Endpoint that accepts queries and performs retrieval.
+
+    使用Semaphore限制并发，同时只处理1个请求，避免多worker并发导致GPU OOM
+
     Input format:
     {
       "queries": ["What is Python?", "Tell me about neural networks."],
@@ -516,28 +523,31 @@ def retrieve_endpoint(request: QueryRequest):
       "return_scores": true
     }
     """
-    if not request.topk:
-        request.topk = config.retrieval_topk  # fallback to default
+    # 获取信号量，确保同时只有1个请求在处理
+    async with retrieval_semaphore:
+        if not request.topk:
+            request.topk = config.retrieval_topk  # fallback to default
 
-    # Perform batch retrieval
-    results, scores = retriever.batch_search(
-        query_list=request.queries,
-        num=request.topk,
-        return_score=True
-    )
-    
-    # Format response
-    resp = []
-    for i, single_result in enumerate(results):
-        if request.return_scores:
-            # If scores are returned, combine them with results
-            combined = []
-            for doc, score in zip(single_result, scores[i]):
-                combined.append({"document": doc, "score": score})
-            resp.append(combined)
-        else:
-            resp.append(single_result)
-    return {"result": resp}
+        # Perform batch retrieval
+        results, scores = retriever.batch_search(
+            query_list=request.queries,
+            num=request.topk,
+            return_score=True
+        )
+
+        # Format response
+        resp = []
+        for i, single_result in enumerate(results):
+            if request.return_scores:
+                # If scores are returned, combine them with results
+                combined = []
+                for doc, score in zip(single_result, scores[i]):
+                    combined.append({"document": doc, "score": score})
+                resp.append(combined)
+            else:
+                resp.append(single_result)
+
+        return {"result": resp}
 
 
 if __name__ == "__main__":

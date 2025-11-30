@@ -24,8 +24,9 @@ RETRIEVER_MODEL=intfloat/e5-base-v2
 TOPK=3
 
 # FAISS GPU temporary memory (GB per GPU)
-# 降低临时内存限制以避免大批量请求时OOM
-export FAISS_GPU_TEMP_MEM_GB=40
+# 降低临时内存限制以避免多worker并发时OOM
+# 40GB时在并发请求下仍会崩溃，降到30GB确保稳定
+export FAISS_GPU_TEMP_MEM_GB=30
 
 echo "============================================================================"
 echo "Starting E5 Dense Retrieval Server with Dual GPU"
