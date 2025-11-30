@@ -448,14 +448,32 @@ If I want to give the final answer, I should put the answer between <answer> and
         return [self._passages2string(result) for result in results]
 
     def _batch_search(self, queries):
-        
+
         payload = {
             "queries": queries,
             "topk": self.config.topk,
             "return_scores": True
         }
-        
-        return requests.post(self.config.search_url, json=payload).json()
+
+        # 重试逻辑：检索器可能因内存泄漏重启，等待其恢复
+        max_retries = 30  # 最多重试30次
+        retry_delay = 10  # 每次等待10秒
+
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(self.config.search_url, json=payload, timeout=120)
+                return response.json()
+            except (requests.exceptions.ConnectionError,
+                    requests.exceptions.Timeout,
+                    requests.exceptions.RequestException) as e:
+                if attempt < max_retries - 1:
+                    print(f"[Retrieval] Connection failed (attempt {attempt + 1}/{max_retries}): {e}")
+                    print(f"[Retrieval] Waiting {retry_delay}s for retrieval server to restart...")
+                    import time
+                    time.sleep(retry_delay)
+                else:
+                    print(f"[Retrieval] All {max_retries} attempts failed. Raising exception.")
+                    raise
 
     def _passages2string(self, retrieval_result):
         format_reference = ''
