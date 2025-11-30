@@ -16,11 +16,25 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 def load_corpus(corpus_path: str):
-    """使用 HuggingFace datasets 加载语料库（支持快速索引访问）"""
-    print(f"Loading corpus from {corpus_path} using datasets library...")
-    corpus = datasets.load_dataset('json', data_files=corpus_path, split='train')
-    print(f"Loaded {len(corpus):,} documents")
-    return corpus
+    """加载语料库到内存字典，加速文档访问"""
+    corpus_dict = {}
+    print(f"Loading corpus from {corpus_path}...")
+    import time
+    start_time = time.time()
+
+    with open(corpus_path, 'r') as f:
+        for idx, line in enumerate(f):
+            doc = json.loads(line)
+            corpus_dict[idx] = doc
+
+            # 每100万条显示进度
+            if (idx + 1) % 1000000 == 0:
+                print(f"  Loaded {idx + 1:,} documents...")
+
+    elapsed = time.time() - start_time
+    print(f"Loaded {len(corpus_dict):,} documents in {elapsed:.1f} seconds")
+    print(f"Memory usage: ~{len(corpus_dict) * 1000 / (1024**2):.0f} MB estimated")
+    return corpus_dict
 
 def read_jsonl(file_path):
     data = []
@@ -34,7 +48,7 @@ def load_docs(corpus, doc_idxs, docid_to_idx=None):
     加载文档，过滤无效索引
 
     Args:
-        corpus: HuggingFace Dataset 或字典
+        corpus: 语料库字典 (int -> doc)
         doc_idxs: 文档索引列表（可能是整数或字符串）
         docid_to_idx: 可选的 docid -> 行号映射字典（用于 BM25）
 
@@ -52,22 +66,12 @@ def load_docs(corpus, doc_idxs, docid_to_idx=None):
         try:
             idx_int = int(idx)
             if idx_int >= 0:  # FAISS 在找不到邻居时返回 -1
-                # 支持 HuggingFace Dataset 和字典两种方式
-                if hasattr(corpus, '__getitem__'):
-                    doc = corpus[idx_int]
-                else:
-                    doc = corpus.get(idx_int)
-        except (ValueError, TypeError, IndexError):
+                doc = corpus.get(idx_int)
+        except (ValueError, TypeError):
             # 不是整数，尝试通过 docid_to_idx 映射（BM25 的情况）
             if docid_to_idx is not None and idx in docid_to_idx:
                 idx_int = docid_to_idx[idx]
-                try:
-                    if hasattr(corpus, '__getitem__'):
-                        doc = corpus[idx_int]
-                    else:
-                        doc = corpus.get(idx_int)
-                except (IndexError, KeyError):
-                    pass
+                doc = corpus.get(idx_int)
 
         # 只添加有效文档
         if doc is not None:
