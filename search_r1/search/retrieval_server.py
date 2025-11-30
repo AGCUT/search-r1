@@ -209,16 +209,25 @@ class DenseRetriever(BaseRetriever):
         super().__init__(config)
         self.index = faiss.read_index(self.index_path)
         if config.faiss_gpu:
-            # 创建 GPU 资源配置，限制临时显存使用
-            res = faiss.StandardGpuResources()
-            res.setTempMemory(70 * 1024 * 1024 * 1024)  # 限制为 70GB 临时显存
+            # 创建多 GPU 资源配置
+            ngpus = faiss.get_num_gpus()
+            print(f"Found {ngpus} GPUs for faiss")
+
+            # 为每个 GPU 创建资源对象，限制临时显存
+            gpu_resources = []
+            for i in range(ngpus):
+                res = faiss.StandardGpuResources()
+                # 每张卡分配 40GB 临时显存（对于 A800 80GB）
+                res.setTempMemory(40 * 1024 * 1024 * 1024)
+                gpu_resources.append(res)
 
             co = faiss.GpuMultipleClonerOptions()
             co.useFloat16 = True
-            co.shard = False  # 使用单个 GPU，不分片
+            co.shard = True  # 启用分片，将索引分布到多个 GPU
 
-            # 使用单个 GPU（dev 0，即 CUDA_VISIBLE_DEVICES 中的第一个 GPU）
-            self.index = faiss.index_cpu_to_gpu(res, 0, self.index, co)
+            # 将索引分片到多个 GPU
+            print(f"Sharding index to {ngpus} GPUs...")
+            self.index = faiss.index_cpu_to_gpu_multiple_py(gpu_resources, self.index, co)
 
         self.corpus = load_corpus(self.corpus_path)
         self.encoder = Encoder(

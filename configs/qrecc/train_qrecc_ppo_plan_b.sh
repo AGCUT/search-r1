@@ -19,7 +19,7 @@
 # GPU Configuration
 # ============================================================================
 # Using 3x A800 GPUs for training (GPU 4 reserved for E5 retrieval server)
-export CUDA_VISIBLE_DEVICES=5,6,7
+export CUDA_VISIBLE_DEVICES=2,3,4,5,6,7
 
 # ============================================================================
 # Data Configuration
