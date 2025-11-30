@@ -211,7 +211,7 @@ class DenseRetriever(BaseRetriever):
         if config.faiss_gpu:
             # 创建 GPU 资源配置，限制临时显存使用
             res = faiss.StandardGpuResources()
-            res.setTempMemory(2 * 1024 * 1024 * 1024)  # 限制为 2GB 临时显存
+            #res.setTempMemory(70 * 1024 * 1024 * 1024)  # 限制为 70GB 临时显存
 
             co = faiss.GpuMultipleClonerOptions()
             co.useFloat16 = True
@@ -347,7 +347,7 @@ def retrieve_endpoint(request: QueryRequest):
     results, scores = retriever.batch_search(
         query_list=request.queries,
         num=request.topk,
-        return_score=request.return_scores
+        return_score=True
     )
     
     # Format response

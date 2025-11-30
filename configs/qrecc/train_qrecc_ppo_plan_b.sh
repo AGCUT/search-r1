@@ -30,8 +30,8 @@ export DATA_DIR='data/qrecc_plan_b'
 # Model Configuration
 # ============================================================================
 # Primary model: Qwen3-4B
-export BASE_MODEL='/home/yuque2/chris/qwen3-4b'
-export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen3-4b-em'
+export BASE_MODEL='/usr/yuque/guo/models/qwen2.5-3b'
+export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen2.5-3b-em'
 
 # Alternative models (uncomment to use):
 # export BASE_MODEL='Qwen/Qwen3-4B-Instruct'

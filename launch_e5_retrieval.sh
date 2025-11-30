@@ -37,8 +37,7 @@ python search_r1/search/retrieval_server.py \
     --corpus_path $CORPUS_FILE \
     --topk $TOPK \
     --retriever_name $RETRIEVER_NAME \
-    --retriever_model $RETRIEVER_MODEL \
-    --faiss_gpu
+    --retriever_model $RETRIEVER_MODEL
 
 echo "============================================================================"
 echo "Retrieval server is running at http://127.0.0.1:8000/retrieve"
