@@ -492,6 +492,12 @@ retriever = None
 # 并发控制：同时只处理1个检索请求，避免GPU显存OOM
 retrieval_semaphore = asyncio.Semaphore(1)
 
+# 查询计数器：用于定期重启防止内存泄漏
+query_count = 0
+# 最大查询次数：超过此值后主动退出，由自动重启脚本重启
+# 根据测试，约9000次查询后会崩溃，设置5000次主动重启留有余量
+MAX_QUERIES_BEFORE_RESTART = int(os.environ.get('MAX_QUERIES_BEFORE_RESTART', '5000'))
+
 @app.on_event("startup")
 async def startup_event():
     """FastAPI startup 事件：初始化配置和检索器"""
@@ -534,6 +540,8 @@ async def retrieve_endpoint(request: QueryRequest):
       "return_scores": true
     }
     """
+    global query_count
+
     # 获取信号量，确保同时只有1个请求在处理
     async with retrieval_semaphore:
         if not request.topk:
@@ -563,7 +571,37 @@ async def retrieve_endpoint(request: QueryRequest):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+        # 更新查询计数
+        query_count += len(request.queries)
+
+        # 检查是否需要主动重启
+        if query_count >= MAX_QUERIES_BEFORE_RESTART:
+            print(f"\n{'='*60}")
+            print(f"[Auto-Restart] Reached {query_count} queries (limit: {MAX_QUERIES_BEFORE_RESTART})")
+            print(f"[Auto-Restart] Initiating graceful shutdown to prevent memory leak crash...")
+            print(f"{'='*60}\n")
+            # 延迟退出，确保响应先返回给客户端
+            asyncio.create_task(_delayed_shutdown())
+
         return {"result": resp}
+
+
+async def _delayed_shutdown():
+    """延迟关闭服务器，确保最后一个响应能返回"""
+    await asyncio.sleep(1)
+    print("[Auto-Restart] Shutting down server now...")
+    os._exit(0)  # 强制退出，由自动重启脚本重启
+
+
+@app.get("/health")
+async def health_check():
+    """健康检查端点，返回服务器状态和查询计数"""
+    return {
+        "status": "healthy",
+        "query_count": query_count,
+        "max_queries": MAX_QUERIES_BEFORE_RESTART,
+        "remaining": MAX_QUERIES_BEFORE_RESTART - query_count
+    }
 
 
 if __name__ == "__main__":
