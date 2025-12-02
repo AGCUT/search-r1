@@ -692,9 +692,26 @@ class RayPPOTrainer(object):
         )
 
         # start training loop
+        import time
+        training_start_time = time.time()
+        step_times = []
+
         for epoch in range(self.config.trainer.total_epochs):
             for batch_dict in self.train_dataloader:
-                print(f'epoch {epoch}, step {self.global_steps}')
+                step_start_time = time.time()
+
+                # Calculate progress and ETA
+                progress = self.global_steps / self.total_training_steps * 100
+                if len(step_times) > 0:
+                    avg_step_time = sum(step_times[-10:]) / len(step_times[-10:])  # Average of last 10 steps
+                    remaining_steps = self.total_training_steps - self.global_steps
+                    eta_seconds = remaining_steps * avg_step_time
+                    eta_hours = eta_seconds / 3600
+                    elapsed = time.time() - training_start_time
+                    elapsed_hours = elapsed / 3600
+                    print(f'[Step {self.global_steps}/{self.total_training_steps}] ({progress:.1f}%) | Epoch {epoch} | Elapsed: {elapsed_hours:.2f}h | ETA: {eta_hours:.2f}h | Avg step: {avg_step_time:.1f}s')
+                else:
+                    print(f'[Step {self.global_steps}/{self.total_training_steps}] ({progress:.1f}%) | Epoch {epoch} | Starting...')
                 metrics = {}
                 timing_raw = {}
 
@@ -839,6 +856,10 @@ class RayPPOTrainer(object):
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)
+
+                # Record step time for ETA calculation
+                step_time = time.time() - step_start_time
+                step_times.append(step_time)
 
                 self.global_steps += 1
 

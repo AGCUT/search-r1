@@ -25,11 +25,14 @@ import numpy as np
 def _select_rm_score_fn(data_source):
     if data_source in ['nq', 'triviaqa', 'popqa', 'hotpotqa', '2wikimultihopqa', 'musique', 'bamboogle']:
         return qa_em.compute_score_em
-    elif data_source in ['qrecc_plan_b', 'qrecc_plan_a', 'qrecc']:
+    elif data_source in ['qrecc_plan_b', 'qrecc_plan_a', 'qrecc', 'mini_qrecc']:
         from verl.utils.reward_score import qrecc_em
         return qrecc_em.compute_score_em
     else:
-        raise NotImplementedError
+        # Fallback: use qrecc_em for unknown data sources
+        print(f"[Warning] Unknown data_source: {data_source}, using qrecc_em.compute_score_em")
+        from verl.utils.reward_score import qrecc_em
+        return qrecc_em.compute_score_em
 
 
 class RewardManager():
@@ -50,7 +53,7 @@ class RewardManager():
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
 
-        # all_scores = []
+        all_scores = []
 
         already_print_data_sources = {}
 
@@ -81,7 +84,7 @@ class RewardManager():
             score = compute_score_fn(solution_str=sequences_str, ground_truth=ground_truth, format_score=self.format_score)
 
             reward_tensor[i, valid_response_length - 1] = score
-            # all_scores.append(score)
+            all_scores.append(score)
 
             if data_source not in already_print_data_sources:
                 already_print_data_sources[data_source] = 0
@@ -89,13 +92,10 @@ class RewardManager():
             if already_print_data_sources[data_source] < self.num_examine:
                 already_print_data_sources[data_source] += 1
                 print(sequences_str)
-        
-        # print(f"[DEBUG] all_scores: {all_scores}")
-        # print(f"[DEBUG] all_scores shape: {np.array(all_scores).shape}")
-        # print(f"[DEBUG] all_scores mean: {np.mean(all_scores)}")
-        # print(f"[DEBUG] all_scores max: {np.max(all_scores)}")
-        # print(f"[DEBUG] all_scores min: {np.min(all_scores)}")
-        # print(f"[DEBUG] all_scores std: {np.std(all_scores)}")
+
+        # Print reward statistics for each batch
+        if len(all_scores) > 0:
+            print(f"[Reward] mean: {np.mean(all_scores):.4f}, max: {np.max(all_scores):.4f}, min: {np.min(all_scores):.4f}, std: {np.std(all_scores):.4f}, count: {len(all_scores)}")
 
         return reward_tensor
 
