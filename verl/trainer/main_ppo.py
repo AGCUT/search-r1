@@ -41,23 +41,23 @@ def _select_rm_score_fn(data_source, reward_fn_type='em'):
         return qa_em.compute_score_em
     elif data_source in ['qrecc_plan_b', 'qrecc_plan_a', 'qrecc', 'mini_qrecc']:
         if reward_fn_type == 'subem':
-            print(f"[RewardFn] Using SubEM (substring match) for {data_source}")
+            #print(f"[RewardFn] Using SubEM (substring match) for {data_source}")
             return qrecc_em.compute_score_subem
         elif reward_fn_type == 'f1':
-            print(f"[RewardFn] Using F1 (token-level F1 score) for {data_source}")
+            #print(f"[RewardFn] Using F1 (token-level F1 score) for {data_source}")
             return qrecc_em.compute_score_f1
         elif reward_fn_type == 'em_f1':
-            print(f"[RewardFn] Using EM+F1 (combined scoring) for {data_source}")
+            #print(f"[RewardFn] Using EM+F1 (combined scoring) for {data_source}")
             return qrecc_em.compute_score_em_f1
         elif reward_fn_type == 'hybrid':
-            print(f"[RewardFn] Using Hybrid (format-aware F1) for {data_source}")
+            #print(f"[RewardFn] Using Hybrid (format-aware F1) for {data_source}")
             return qrecc_em_v2.compute_score_hybrid
         else:
-            print(f"[RewardFn] Using EM (exact match) for {data_source}")
+            #print(f"[RewardFn] Using EM (exact match) for {data_source}")
             return qrecc_em.compute_score_em
     else:
         # Fallback: use qrecc_em for unknown data sources
-        print(f"[Warning] Unknown data_source: {data_source}, using qrecc_em.compute_score_em")
+        #print(f"[Warning] Unknown data_source: {data_source}, using qrecc_em.compute_score_em")
         return qrecc_em.compute_score_em
 
 
