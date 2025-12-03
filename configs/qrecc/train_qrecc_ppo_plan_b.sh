@@ -31,18 +31,23 @@ export CUDA_VISIBLE_DEVICES=6,7
 export DATA_DIR='data/qrecc_plan_b'
 
 # ============================================================================
-# Model Configuration
+# Reward Function Configuration
+# ============================================================================
+# Options: em (exact match), subem (substring match), f1, hybrid
+REWARD_FN=${REWARD_FN:-"hybrid"}
+echo "Using reward function: $REWARD_FN"
+
+# ============================================================================
+# Model / Experiment Configuration
 # ============================================================================
 # Primary model: Qwen2.5-3B-Instruct (ChatML 格式)
 export BASE_MODEL='/usr/yuque/guo/models/qwen2.5-3b-instruct'
-export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen2.5-3b-instruct-em'
-
-# ============================================================================
-# Reward Function Configuration
-# ============================================================================
-# Options: em (exact match), subem (substring match)
-REWARD_FN=${REWARD_FN:-"em"}
-echo "Using reward function: $REWARD_FN"
+# Create unique experiment name per run to avoid collisions
+RUN_TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+DEFAULT_EXPERIMENT_NAME="qrecc-plan-b-ppo-qwen2.5-3b-instruct-${REWARD_FN}-${RUN_TIMESTAMP}"
+export EXPERIMENT_NAME=${EXPERIMENT_NAME:-$DEFAULT_EXPERIMENT_NAME}
+# Show final experiment name
+echo "Experiment Name: $EXPERIMENT_NAME"
 
 # ============================================================================
 # Resume Configuration (set RESUME_STEP to resume from checkpoint)

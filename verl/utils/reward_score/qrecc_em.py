@@ -99,6 +99,58 @@ def subem_check(prediction, golden_answers):
     return score
 
 
+def f1_check(prediction, golden_answers):
+    """
+    Compute token-level F1 score between prediction and golden answers.
+
+    This follows the official SQuAD/QReCC evaluation:
+    - Tokenize by whitespace after normalization
+    - Compute precision, recall, and F1 based on token overlap
+    - Return the maximum F1 across all golden answers
+
+    Args:
+        prediction: The predicted answer string
+        golden_answers: List of acceptable answer strings (or single string)
+
+    Returns:
+        Float F1 score between 0 and 1
+    """
+    from collections import Counter
+
+    if isinstance(golden_answers, str):
+        golden_answers = [golden_answers]
+
+    # Tokenize prediction
+    pred_tokens = normalize_answer(prediction).split()
+
+    if len(pred_tokens) == 0:
+        return 0.0
+
+    max_f1 = 0.0
+
+    for golden_answer in golden_answers:
+        gold_tokens = normalize_answer(golden_answer).split()
+
+        if len(gold_tokens) == 0:
+            continue
+
+        # Count common tokens
+        common = Counter(pred_tokens) & Counter(gold_tokens)
+        num_same = sum(common.values())
+
+        if num_same == 0:
+            continue
+
+        # Compute precision, recall, F1
+        precision = num_same / len(pred_tokens)
+        recall = num_same / len(gold_tokens)
+        f1 = 2 * precision * recall / (precision + recall)
+
+        max_f1 = max(max_f1, f1)
+
+    return max_f1
+
+
 def extract_solution(solution_str):
     """
     Extract the answer from the model's solution string.
@@ -141,14 +193,20 @@ def compute_score_em(solution_str, ground_truth, method='strict', format_score=0
     # Extract the answer from solution string
     answer = extract_solution(solution_str=solution_str)
 
-    # Randomly print some examples for debugging (1/64 chance)
-    do_print = random.randint(1, 64) == 1
+    # Count <answer> tags for debugging
+    answer_pattern = r'<answer>(.*?)</answer>'
+    matches = list(re.finditer(answer_pattern, solution_str, re.DOTALL))
+    num_answer_tags = len(matches)
+
+    # Randomly print some examples for debugging (1/32 chance)
+    do_print = random.randint(1, 32) == 1
 
     if do_print:
         print(f"--------------------------------")
         print(f"[QReCC EM] Golden answers: {ground_truth['target']}")
+        print(f"[QReCC EM] Num <answer> tags found: {num_answer_tags}")
         print(f"[QReCC EM] Extracted answer: {answer}")
-        print(f"[QReCC EM] Solution string: {solution_str[:200]}...")
+        print(f"[QReCC EM] Solution (last 500 chars): ...{solution_str[-500:]}")
         print(f"--------------------------------")
 
     # No valid answer extracted
@@ -202,3 +260,111 @@ def compute_score_subem(solution_str, ground_truth, method='strict', format_scor
     else:
         # Answer was formatted correctly but didn't match
         return format_score
+
+
+def compute_score_f1(solution_str, ground_truth, method='strict', format_score=0., score=1.):
+    """
+    The scoring function using token-level F1 score on QReCC dataset.
+
+    This follows the official SQuAD/QReCC evaluation methodology.
+    F1 provides partial credit for partially correct answers, which can
+    help with training by providing more granular reward signals.
+
+    Args:
+        solution_str: The complete solution text from the model
+        ground_truth: Dictionary containing the ground truth answer(s) under 'target' key
+        method: The method to extract the solution ('strict' or 'flexible')
+        format_score: Not used for F1, kept for API compatibility
+        score: Maximum score (F1 is scaled to [0, score])
+
+    Returns:
+        Float score: 0 (no answer) or F1 score scaled to [0, score]
+    """
+    # Extract the answer from solution string
+    answer = extract_solution(solution_str=solution_str)
+
+    # Count <answer> tags for debugging
+    answer_pattern = r'<answer>(.*?)</answer>'
+    matches = list(re.finditer(answer_pattern, solution_str, re.DOTALL))
+    num_answer_tags = len(matches)
+
+    # Randomly print some examples for debugging (1/32 chance)
+    do_print = random.randint(1, 32) == 1
+
+    # No valid answer extracted
+    if answer is None:
+        if do_print:
+            print(f"--------------------------------")
+            print(f"[QReCC F1] Golden answers: {ground_truth['target']}")
+            print(f"[QReCC F1] Num <answer> tags found: {num_answer_tags}")
+            print(f"[QReCC F1] Extracted answer: None")
+            print(f"[QReCC F1] F1 Score: 0.0")
+            print(f"--------------------------------")
+        return 0
+
+    # Compute F1 score
+    f1 = f1_check(answer, ground_truth['target'])
+    final_score = f1 * score  # Scale to [0, score]
+
+    if do_print:
+        print(f"--------------------------------")
+        print(f"[QReCC F1] Golden answers: {ground_truth['target']}")
+        print(f"[QReCC F1] Num <answer> tags found: {num_answer_tags}")
+        print(f"[QReCC F1] Extracted answer: {answer}")
+        print(f"[QReCC F1] F1 Score: {f1:.4f} (scaled: {final_score:.4f})")
+        print(f"[QReCC F1] Solution (last 300 chars): ...{solution_str[-300:]}")
+        print(f"--------------------------------")
+
+    return final_score
+
+
+def compute_score_em_f1(solution_str, ground_truth, method='strict', format_score=0., score=1., em_weight=0.5):
+    """
+    Combined EM + F1 scoring function.
+
+    Uses weighted combination of EM and F1 scores:
+    - If EM matches: returns full score
+    - If EM doesn't match: returns em_weight * 0 + (1-em_weight) * F1
+
+    This provides the strictness of EM with the partial credit of F1.
+
+    Args:
+        solution_str: The complete solution text from the model
+        ground_truth: Dictionary containing the ground truth answer(s) under 'target' key
+        method: The method to extract the solution ('strict' or 'flexible')
+        format_score: Not used, kept for API compatibility
+        score: Maximum score
+        em_weight: Weight for EM component (default 0.5)
+
+    Returns:
+        Float score combining EM and F1
+    """
+    # Extract the answer from solution string
+    answer = extract_solution(solution_str=solution_str)
+
+    # No valid answer extracted
+    if answer is None:
+        return 0
+
+    # Check EM first
+    if em_check(answer, ground_truth['target']):
+        return score  # Full score for exact match
+
+    # If not exact match, compute F1 for partial credit
+    f1 = f1_check(answer, ground_truth['target'])
+
+    # Weighted combination: since EM=0, result is just (1-em_weight) * F1 * score
+    final_score = (1 - em_weight) * f1 * score
+
+    # Randomly print some examples for debugging (1/32 chance)
+    do_print = random.randint(1, 32) == 1
+
+    if do_print:
+        print(f"--------------------------------")
+        print(f"[QReCC EM+F1] Golden answers: {ground_truth['target']}")
+        print(f"[QReCC EM+F1] Extracted answer: {answer}")
+        print(f"[QReCC EM+F1] EM: 0, F1: {f1:.4f}")
+        print(f"[QReCC EM+F1] Combined Score: {final_score:.4f}")
+        print(f"--------------------------------")
+
+    return final_score

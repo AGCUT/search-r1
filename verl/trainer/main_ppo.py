@@ -17,7 +17,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 from verl import DataProto
 import torch
-from verl.utils.reward_score import qa_em
+from verl.utils.reward_score import qa_em, qrecc_em, qrecc_em_v2
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import re
 import numpy as np
@@ -28,9 +28,11 @@ def _select_rm_score_fn(data_source, reward_fn_type='em'):
 
     Args:
         data_source: Dataset name (e.g., 'nq', 'qrecc_plan_b')
-        reward_fn_type: Reward function type ('em', 'subem')
-            - 'em': Exact Match (strict matching)
-            - 'subem': Substring Exact Match (more lenient)
+        reward_fn_type: Reward function type
+            - 'em': Exact Match (strict matching, 0 or 1)
+            - 'subem': Substring Exact Match (more lenient, 0 or 1)
+            - 'f1': Token-level F1 score (partial credit, 0 to 1)
+            - 'em_f1': Combined EM + F1 (full score for EM, partial for F1)
 
     Returns:
         Scoring function
@@ -38,17 +40,24 @@ def _select_rm_score_fn(data_source, reward_fn_type='em'):
     if data_source in ['nq', 'triviaqa', 'popqa', 'hotpotqa', '2wikimultihopqa', 'musique', 'bamboogle']:
         return qa_em.compute_score_em
     elif data_source in ['qrecc_plan_b', 'qrecc_plan_a', 'qrecc', 'mini_qrecc']:
-        from verl.utils.reward_score import qrecc_em
         if reward_fn_type == 'subem':
             print(f"[RewardFn] Using SubEM (substring match) for {data_source}")
             return qrecc_em.compute_score_subem
+        elif reward_fn_type == 'f1':
+            print(f"[RewardFn] Using F1 (token-level F1 score) for {data_source}")
+            return qrecc_em.compute_score_f1
+        elif reward_fn_type == 'em_f1':
+            print(f"[RewardFn] Using EM+F1 (combined scoring) for {data_source}")
+            return qrecc_em.compute_score_em_f1
+        elif reward_fn_type == 'hybrid':
+            print(f"[RewardFn] Using Hybrid (format-aware F1) for {data_source}")
+            return qrecc_em_v2.compute_score_hybrid
         else:
             print(f"[RewardFn] Using EM (exact match) for {data_source}")
             return qrecc_em.compute_score_em
     else:
         # Fallback: use qrecc_em for unknown data sources
         print(f"[Warning] Unknown data_source: {data_source}, using qrecc_em.compute_score_em")
-        from verl.utils.reward_score import qrecc_em
         return qrecc_em.compute_score_em
 
 
@@ -56,8 +65,11 @@ class RewardManager():
     """The reward manager.
 
     Supports multiple reward function types:
-    - 'em': Exact Match (strict, default)
-    - 'subem': Substring Exact Match (more lenient)
+    - 'em': Exact Match (strict, default) - 0 or 1
+    - 'subem': Substring Exact Match (more lenient) - 0 or 1
+    - 'f1': Token-level F1 score (partial credit) - 0 to 1
+    - 'em_f1': Combined EM + F1 (full for EM, partial for F1) - 0 to 1
+    - 'hybrid': Format-aware F1 scoring with tiered rewards
     """
 
     def __init__(self, tokenizer, num_examine, format_score=0., reward_fn_type='em') -> None:
