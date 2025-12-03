@@ -1,18 +1,27 @@
 #!/bin/bash
 #
-# Training script for QReCC Plan B (Using Ground-truth Rewritten Queries)
+# Training script for QReCC Plan B using GRPO (Group Relative Policy Optimization)
 #
-# Plan B Approach:
-# - Uses rewritten standalone queries from QReCC dataset
-# - Simplified baseline without conversation history
-# - Model learns reasoning and search with clear, standalone questions
+# GRPO Approach:
+# - Uses group-based advantage estimation instead of critic model
+# - Samples multiple responses per prompt (n_agent > 1)
+# - More sample-efficient than PPO for some tasks
+#
+# Key Differences from PPO:
+# - algorithm.adv_estimator=grpo instead of gae
+# - No critic model needed (saves memory)
+# - n_agent=5 (samples 5 responses per prompt)
+# - Uses KL loss instead of KL penalty
 #
 # Usage:
 #   # Fresh start
-#   bash configs/qrecc/train_qrecc_ppo_plan_b.sh
+#   bash configs/qrecc/train_qrecc_grpo_plan_b.sh
 #
 #   # Resume from checkpoint (set RESUME_STEP)
-#   RESUME_STEP=100 bash configs/qrecc/train_qrecc_ppo_plan_b.sh
+#   RESUME_STEP=100 bash configs/qrecc/train_qrecc_grpo_plan_b.sh
+#
+#   # Use different reward function
+#   REWARD_FN=subem bash configs/qrecc/train_qrecc_grpo_plan_b.sh
 #
 # Requirements:
 # 1. Processed dataset: data/qrecc_plan_b/train.parquet and test.parquet
@@ -33,9 +42,9 @@ export DATA_DIR='data/qrecc_plan_b'
 # ============================================================================
 # Model Configuration
 # ============================================================================
-# Primary model: Qwen2.5-3B-Instruct (ChatML 格式)
+# Primary model: Qwen2.5-3B-Instruct (ChatML format)
 export BASE_MODEL='/usr/yuque/guo/models/qwen2.5-3b-instruct'
-export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen2.5-3b-instruct-em'
+export EXPERIMENT_NAME='qrecc-plan-b-grpo-qwen2.5-3b-instruct-em'
 
 # ============================================================================
 # Reward Function Configuration
@@ -47,7 +56,7 @@ echo "Using reward function: $REWARD_FN"
 # ============================================================================
 # Resume Configuration (set RESUME_STEP to resume from checkpoint)
 # ============================================================================
-# Example: RESUME_STEP=100 bash configs/qrecc/train_qrecc_ppo_plan_b.sh
+# Example: RESUME_STEP=100 bash configs/qrecc/train_qrecc_grpo_plan_b.sh
 RESUME_STEP=${RESUME_STEP:-""}
 CHECKPOINT_DIR="verl_checkpoints/$EXPERIMENT_NAME"
 
@@ -57,7 +66,7 @@ if [ -n "$RESUME_STEP" ]; then
         echo "============================================================================"
         echo "RESUMING from checkpoint: $RESUME_PATH"
         echo "============================================================================"
-        RESUME_ARGS="actor_rollout_ref.model.path=$RESUME_PATH/actor critic.model.path=$RESUME_PATH/critic +trainer.resume_step=$RESUME_STEP"
+        RESUME_ARGS="actor_rollout_ref.model.path=$RESUME_PATH/actor +trainer.resume_step=$RESUME_STEP"
     else
         echo "ERROR: Checkpoint not found: $RESUME_PATH"
         echo "Available checkpoints:"
@@ -67,16 +76,6 @@ if [ -n "$RESUME_STEP" ]; then
 else
     RESUME_ARGS=""
 fi
-
-# Alternative models:
-# export BASE_MODEL='/usr/yuque/guo/models/qwen2.5-3b'  # Base 版本（不推荐）
-# export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen2.5-3b-em'
-
-# export BASE_MODEL='meta-llama/Llama-3.2-3B'
-# export EXPERIMENT_NAME='qrecc-plan-b-ppo-llama3.2-3b-em'
-
-# export BASE_MODEL='Qwen/Qwen2.5-7B'
-# export EXPERIMENT_NAME='qrecc-plan-b-ppo-qwen2.5-7b-em'
 
 # ============================================================================
 # Logging Configuration
@@ -90,64 +89,61 @@ WAND_PROJECT='Search-R1-QReCC'
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
 # ============================================================================
-# Launch PPO Training
+# Launch GRPO Training
 # ============================================================================
 echo "============================================================================"
-echo "Starting QReCC Plan B Training"
+echo "Starting QReCC Plan B Training with GRPO"
 echo "============================================================================"
 echo "Model: $BASE_MODEL"
 echo "Experiment: $EXPERIMENT_NAME"
 echo "Data Directory: $DATA_DIR"
 echo "GPUs: $CUDA_VISIBLE_DEVICES"
+echo "Reward Function: $REWARD_FN"
+echo "Algorithm: GRPO (n_agent=5)"
 echo "============================================================================"
+
+# Create logs directory if not exists
+mkdir -p logs
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.train_files=$DATA_DIR/train.parquet \
     data.val_files=$DATA_DIR/test.parquet \
     data.train_data_num=null \
     data.val_data_num=null \
-    data.train_batch_size=128 \
-    data.val_batch_size=64 \
+    data.train_batch_size=64 \
+    data.val_batch_size=32 \
     data.max_prompt_length=4096 \
     data.max_response_length=500 \
     data.max_start_length=2048 \
     data.max_obs_length=800 \
     data.shuffle_train_dataloader=True \
-    algorithm.adv_estimator=gae \
+    algorithm.adv_estimator=grpo \
     actor_rollout_ref.model.path=$BASE_MODEL \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.enable_gradient_checkpointing=true \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.285 \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
-    actor_rollout_ref.actor.ppo_micro_batch_size=16 \
+    actor_rollout_ref.actor.ppo_micro_batch_size=8 \
     actor_rollout_ref.actor.fsdp_config.param_offload=false \
     actor_rollout_ref.actor.fsdp_config.grad_offload=false \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=false \
-    actor_rollout_ref.rollout.log_prob_micro_batch_size=32 \
+    actor_rollout_ref.actor.use_kl_loss=true \
+    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
+    actor_rollout_ref.rollout.log_prob_micro_batch_size=16 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
-    actor_rollout_ref.ref.log_prob_micro_batch_size=32 \
+    actor_rollout_ref.ref.log_prob_micro_batch_size=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=false \
-    actor_rollout_ref.rollout.n_agent=1 \
+    actor_rollout_ref.rollout.n_agent=5 \
     actor_rollout_ref.rollout.temperature=1 \
     actor_rollout_ref.rollout.top_p=0.9 \
     actor_rollout_ref.rollout.top_k=50 \
     actor_rollout_ref.actor.state_masking=true \
-    critic.optim.lr=1e-5 \
-    critic.model.use_remove_padding=True \
-    critic.optim.lr_warmup_steps_ratio=0.015 \
-    critic.model.path=$BASE_MODEL \
-    critic.model.enable_gradient_checkpointing=true \
-    critic.ppo_micro_batch_size=4 \
-    critic.model.fsdp_config.param_offload=false \
-    critic.model.fsdp_config.grad_offload=false \
-    critic.model.fsdp_config.optimizer_offload=false \
-    algorithm.kl_ctrl.kl_coef=0.001 \
     algorithm.no_think_rl=false \
     +algorithm.reward_fn=$REWARD_FN \
-    trainer.critic_warmup=0 \
     trainer.logger=['console'] \
     +trainer.val_only=false \
     +trainer.val_before_train=true \

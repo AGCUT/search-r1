@@ -22,12 +22,29 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import re
 import numpy as np
 
-def _select_rm_score_fn(data_source):
+def _select_rm_score_fn(data_source, reward_fn_type='em'):
+    """
+    Select reward scoring function based on data source and reward function type.
+
+    Args:
+        data_source: Dataset name (e.g., 'nq', 'qrecc_plan_b')
+        reward_fn_type: Reward function type ('em', 'subem')
+            - 'em': Exact Match (strict matching)
+            - 'subem': Substring Exact Match (more lenient)
+
+    Returns:
+        Scoring function
+    """
     if data_source in ['nq', 'triviaqa', 'popqa', 'hotpotqa', '2wikimultihopqa', 'musique', 'bamboogle']:
         return qa_em.compute_score_em
     elif data_source in ['qrecc_plan_b', 'qrecc_plan_a', 'qrecc', 'mini_qrecc']:
         from verl.utils.reward_score import qrecc_em
-        return qrecc_em.compute_score_em
+        if reward_fn_type == 'subem':
+            print(f"[RewardFn] Using SubEM (substring match) for {data_source}")
+            return qrecc_em.compute_score_subem
+        else:
+            print(f"[RewardFn] Using EM (exact match) for {data_source}")
+            return qrecc_em.compute_score_em
     else:
         # Fallback: use qrecc_em for unknown data sources
         print(f"[Warning] Unknown data_source: {data_source}, using qrecc_em.compute_score_em")
@@ -37,12 +54,18 @@ def _select_rm_score_fn(data_source):
 
 class RewardManager():
     """The reward manager.
+
+    Supports multiple reward function types:
+    - 'em': Exact Match (strict, default)
+    - 'subem': Substring Exact Match (more lenient)
     """
 
-    def __init__(self, tokenizer, num_examine, format_score=0.) -> None:
+    def __init__(self, tokenizer, num_examine, format_score=0., reward_fn_type='em') -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.format_score = format_score
+        self.reward_fn_type = reward_fn_type
+        print(f"[RewardManager] Initialized with reward_fn_type={reward_fn_type}")
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
@@ -77,9 +100,9 @@ class RewardManager():
 
             ground_truth = data_item.non_tensor_batch['reward_model']['ground_truth']
 
-            # select rm_score
+            # select rm_score with reward function type
             data_source = data_item.non_tensor_batch['data_source']
-            compute_score_fn = _select_rm_score_fn(data_source)
+            compute_score_fn = _select_rm_score_fn(data_source, self.reward_fn_type)
 
             score = compute_score_fn(solution_str=sequences_str, ground_truth=ground_truth, format_score=self.format_score)
 
@@ -183,10 +206,14 @@ def main_task(config):
         role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
         mapping[Role.RewardModel] = global_pool_id
 
-    reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0)
+    # Get reward function type from config (default: 'em')
+    reward_fn_type = getattr(config.algorithm, 'reward_fn', 'em')
+    print(f"[Config] Using reward function type: {reward_fn_type}")
+
+    reward_fn = RewardManager(tokenizer=tokenizer, num_examine=0, reward_fn_type=reward_fn_type)
 
     # Note that we always use function-based RM for validation
-    val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1)
+    val_reward_fn = RewardManager(tokenizer=tokenizer, num_examine=1, reward_fn_type=reward_fn_type)
 
     resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
     trainer = RayPPOTrainer(config=config,
