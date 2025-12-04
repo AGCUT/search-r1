@@ -29,6 +29,8 @@ export CUDA_VISIBLE_DEVICES=6,7
 # Data Configuration
 # ============================================================================
 export DATA_DIR='data/qrecc_plan_b'
+# Validation subset size (set to "null" to use full val set)
+VAL_DATA_NUM=${VAL_DATA_NUM:-"null"}
 
 # ============================================================================
 # Reward Function Configuration
@@ -108,9 +110,9 @@ echo "==========================================================================
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.train_files=$DATA_DIR/train.parquet \
-    data.val_files=$DATA_DIR/test.parquet \
+    data.val_files=$DATA_DIR/val.parquet \
     data.train_data_num=null \
-    data.val_data_num=null \
+    data.val_data_num=$VAL_DATA_NUM \
     data.train_batch_size=128 \
     data.val_batch_size=64 \
     data.max_prompt_length=4096 \
@@ -120,7 +122,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     data.shuffle_train_dataloader=True \
     algorithm.adv_estimator=gae \
     actor_rollout_ref.model.path=$BASE_MODEL \
-    actor_rollout_ref.model.dtype=bfloat16 \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.enable_gradient_checkpointing=true \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -145,7 +146,6 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     critic.model.use_remove_padding=True \
     critic.optim.lr_warmup_steps_ratio=0.015 \
     critic.model.path=$BASE_MODEL \
-    critic.model.dtype=bfloat16 \
     critic.model.enable_gradient_checkpointing=true \
     critic.ppo_micro_batch_size=4 \
     critic.model.fsdp_config.param_offload=true \
