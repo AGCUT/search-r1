@@ -16,7 +16,7 @@
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # Base model
-export BASE_MODEL="Qwen/Qwen2.5-3B"
+export BASE_MODEL="/usr/yuque/guo/models/qwen2.5-3b-instruct"
 
 # Trained checkpoint
 export TRAINED_CHECKPOINT="/usr/yuque/guo/searchr1/verl_checkpoints/nq_hotpotqa_train-search-r1-ppo-qwen2.5-3b-it-bm25-em/actor/global_step_200"

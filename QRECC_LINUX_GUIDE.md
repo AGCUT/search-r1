@@ -119,8 +119,8 @@ vim configs/qrecc/compare_base_vs_trained_f1.sh
 # GPU 设置 (4卡 A800)
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 
-# 基础模型
-export BASE_MODEL="Qwen/Qwen2.5-3B"
+# 基础模型（使用本地路径）
+export BASE_MODEL="/usr/yuque/guo/models/qwen2.5-3b-instruct"
 
 # 训练后的模型检查点
 export TRAINED_CHECKPOINT="/usr/yuque/guo/searchr1/verl_checkpoints/nq_hotpotqa_train-search-r1-ppo-qwen2.5-3b-it-bm25-em/actor/global_step_200"
