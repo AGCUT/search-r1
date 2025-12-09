@@ -59,16 +59,22 @@ def extract_solution(solution_str: str) -> str:
     """
     Extract the answer from the model's solution string.
 
+    The model should produce answers within <answer>...</answer> tags.
+    We expect at least 2 matches: one as example in prompt, one as actual answer.
+    We extract the content of the LAST <answer> tag.
+
     Args:
         solution_str: The complete solution string from the model
 
     Returns:
-        Extracted answer string, or empty string if not found
+        Extracted answer string, or empty string if no valid answer found
     """
     answer_pattern = r'<answer>(.*?)</answer>'
     matches = list(re.finditer(answer_pattern, solution_str, re.DOTALL | re.IGNORECASE))
 
-    if len(matches) == 0:
+    # If there are 0 or exactly 1 matches, return empty string
+    # We expect at least 2: one as example in prompt, one as actual answer
+    if len(matches) <= 1:
         return ""
 
     # Return the last match (the actual answer, not the example in prompt)
@@ -362,14 +368,17 @@ def rouge_2_check(prediction: str, golden_answers: Union[str, List[str]]) -> flo
     return compute_rouge_n(prediction, golden_answers, n=2)
 
 
-def compute_score_bleu(solution_str: str, ground_truth: Union[str, List[str]],
+def compute_score_bleu(solution_str: str, ground_truth: Union[str, List[str], dict],
                        format_score: float = 0.0, score: float = 1.0) -> float:
     """
     Scoring function for BLEU metric (compatible with veRL framework).
 
     Args:
         solution_str: Model's complete solution string
-        ground_truth: Ground truth answer(s)
+        ground_truth: Ground truth answer(s). Can be:
+            - str: single answer
+            - List[str]: multiple reference answers
+            - dict: QReCC format with 'target' key containing List[str]
         format_score: Bonus score for correct format (default: 0.0)
         score: Maximum score value (default: 1.0)
 
@@ -383,24 +392,37 @@ def compute_score_bleu(solution_str: str, ground_truth: Union[str, List[str]],
     if not predicted_answer:
         return format_score
 
-    # Compute BLEU score
-    if isinstance(ground_truth, str):
-        ground_truth = [ground_truth]
+    # Handle different ground_truth formats
+    if isinstance(ground_truth, dict):
+        # QReCC format: {'target': ['answer1', 'answer2', ...]}
+        references = ground_truth.get('target', [])
+    elif isinstance(ground_truth, str):
+        references = [ground_truth]
+    else:
+        references = ground_truth
 
-    bleu_score = compute_bleu(predicted_answer, ground_truth)
+    # Ensure references is a list
+    if not isinstance(references, list):
+        references = [references]
+
+    # Compute BLEU score
+    bleu_score = compute_bleu(predicted_answer, references)
 
     # Scale to score range and add format bonus
     return bleu_score * score + format_score
 
 
-def compute_score_rouge_l(solution_str: str, ground_truth: Union[str, List[str]],
+def compute_score_rouge_l(solution_str: str, ground_truth: Union[str, List[str], dict],
                           format_score: float = 0.0, score: float = 1.0) -> float:
     """
     Scoring function for ROUGE-L metric (compatible with veRL framework).
 
     Args:
         solution_str: Model's complete solution string
-        ground_truth: Ground truth answer(s)
+        ground_truth: Ground truth answer(s). Can be:
+            - str: single answer
+            - List[str]: multiple reference answers
+            - dict: QReCC format with 'target' key containing List[str]
         format_score: Bonus score for correct format (default: 0.0)
         score: Maximum score value (default: 1.0)
 
@@ -414,24 +436,37 @@ def compute_score_rouge_l(solution_str: str, ground_truth: Union[str, List[str]]
     if not predicted_answer:
         return format_score
 
-    # Compute ROUGE-L score
-    if isinstance(ground_truth, str):
-        ground_truth = [ground_truth]
+    # Handle different ground_truth formats
+    if isinstance(ground_truth, dict):
+        # QReCC format: {'target': ['answer1', 'answer2', ...]}
+        references = ground_truth.get('target', [])
+    elif isinstance(ground_truth, str):
+        references = [ground_truth]
+    else:
+        references = ground_truth
 
-    rouge_score = compute_rouge_l(predicted_answer, ground_truth)
+    # Ensure references is a list
+    if not isinstance(references, list):
+        references = [references]
+
+    # Compute ROUGE-L score
+    rouge_score = compute_rouge_l(predicted_answer, references)
 
     # Scale to score range and add format bonus
     return rouge_score * score + format_score
 
 
-def compute_score_rouge_1(solution_str: str, ground_truth: Union[str, List[str]],
+def compute_score_rouge_1(solution_str: str, ground_truth: Union[str, List[str], dict],
                           format_score: float = 0.0, score: float = 1.0) -> float:
     """
     Scoring function for ROUGE-1 metric (compatible with veRL framework).
 
     Args:
         solution_str: Model's complete solution string
-        ground_truth: Ground truth answer(s)
+        ground_truth: Ground truth answer(s). Can be:
+            - str: single answer
+            - List[str]: multiple reference answers
+            - dict: QReCC format with 'target' key containing List[str]
         format_score: Bonus score for correct format (default: 0.0)
         score: Maximum score value (default: 1.0)
 
@@ -445,24 +480,37 @@ def compute_score_rouge_1(solution_str: str, ground_truth: Union[str, List[str]]
     if not predicted_answer:
         return format_score
 
-    # Compute ROUGE-1 score
-    if isinstance(ground_truth, str):
-        ground_truth = [ground_truth]
+    # Handle different ground_truth formats
+    if isinstance(ground_truth, dict):
+        # QReCC format: {'target': ['answer1', 'answer2', ...]}
+        references = ground_truth.get('target', [])
+    elif isinstance(ground_truth, str):
+        references = [ground_truth]
+    else:
+        references = ground_truth
 
-    rouge_score = compute_rouge_n(predicted_answer, ground_truth, n=1)
+    # Ensure references is a list
+    if not isinstance(references, list):
+        references = [references]
+
+    # Compute ROUGE-1 score
+    rouge_score = compute_rouge_n(predicted_answer, references, n=1)
 
     # Scale to score range and add format bonus
     return rouge_score * score + format_score
 
 
-def compute_score_rouge_2(solution_str: str, ground_truth: Union[str, List[str]],
+def compute_score_rouge_2(solution_str: str, ground_truth: Union[str, List[str], dict],
                           format_score: float = 0.0, score: float = 1.0) -> float:
     """
     Scoring function for ROUGE-2 metric (compatible with veRL framework).
 
     Args:
         solution_str: Model's complete solution string
-        ground_truth: Ground truth answer(s)
+        ground_truth: Ground truth answer(s). Can be:
+            - str: single answer
+            - List[str]: multiple reference answers
+            - dict: QReCC format with 'target' key containing List[str]
         format_score: Bonus score for correct format (default: 0.0)
         score: Maximum score value (default: 1.0)
 
@@ -476,11 +524,21 @@ def compute_score_rouge_2(solution_str: str, ground_truth: Union[str, List[str]]
     if not predicted_answer:
         return format_score
 
-    # Compute ROUGE-2 score
-    if isinstance(ground_truth, str):
-        ground_truth = [ground_truth]
+    # Handle different ground_truth formats
+    if isinstance(ground_truth, dict):
+        # QReCC format: {'target': ['answer1', 'answer2', ...]}
+        references = ground_truth.get('target', [])
+    elif isinstance(ground_truth, str):
+        references = [ground_truth]
+    else:
+        references = ground_truth
 
-    rouge_score = compute_rouge_n(predicted_answer, ground_truth, n=2)
+    # Ensure references is a list
+    if not isinstance(references, list):
+        references = [references]
+
+    # Compute ROUGE-2 score
+    rouge_score = compute_rouge_n(predicted_answer, references, n=2)
 
     # Scale to score range and add format bonus
     return rouge_score * score + format_score
