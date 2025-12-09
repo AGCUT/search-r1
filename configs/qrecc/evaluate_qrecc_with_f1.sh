@@ -39,11 +39,9 @@ export REWARD_FN='f1'
 # ============================================================================
 # Data Configuration
 # ============================================================================
-export DATA_DIR='data/qrecc_raw'
+export DATA_DIR='data/qrecc_plan_b'
 
-# For QReCC raw data, we need to process it first
-# If you already have processed qrecc_plan_b data, use:
-# export DATA_DIR='data/qrecc_plan_b'
+# Already processed qrecc_plan_b data with train.parquet and test.parquet
 
 # ============================================================================
 # vLLM Configuration

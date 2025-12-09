@@ -22,7 +22,7 @@ export BASE_MODEL="/usr/yuque/guo/models/qwen2.5-3b-instruct"
 export TRAINED_CHECKPOINT="/usr/yuque/guo/searchr1/verl_checkpoints/nq_hotpotqa_train-search-r1-ppo-qwen2.5-3b-it-bm25-em/actor/global_step_200"
 
 # Data directory
-export DATA_DIR='data/qrecc_raw'
+export DATA_DIR='data/qrecc_plan_b'
 
 # Evaluation metric
 # Options: 'em', 'f1', 'subem', 'em_f1', 'hybrid'
