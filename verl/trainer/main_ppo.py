@@ -17,7 +17,7 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 
 from verl import DataProto
 import torch
-from verl.utils.reward_score import qa_em, qrecc_em, qrecc_em_v2
+from verl.utils.reward_score import qa_em, qrecc_em, qrecc_em_v2, qrecc_bleu_rouge
 from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import re
 import numpy as np
@@ -33,6 +33,10 @@ def _select_rm_score_fn(data_source, reward_fn_type='em'):
             - 'subem': Substring Exact Match (more lenient, 0 or 1)
             - 'f1': Token-level F1 score (partial credit, 0 to 1)
             - 'em_f1': Combined EM + F1 (full score for EM, partial for F1)
+            - 'bleu': BLEU score (n-gram precision, 0 to 1)
+            - 'rouge_l': ROUGE-L score (LCS-based, 0 to 1)
+            - 'rouge_1': ROUGE-1 score (unigram overlap, 0 to 1)
+            - 'rouge_2': ROUGE-2 score (bigram overlap, 0 to 1)
 
     Returns:
         Scoring function
@@ -52,6 +56,18 @@ def _select_rm_score_fn(data_source, reward_fn_type='em'):
         elif reward_fn_type == 'hybrid':
             #print(f"[RewardFn] Using Hybrid (format-aware F1) for {data_source}")
             return qrecc_em_v2.compute_score_hybrid
+        elif reward_fn_type == 'bleu':
+            #print(f"[RewardFn] Using BLEU (n-gram precision) for {data_source}")
+            return qrecc_bleu_rouge.compute_score_bleu
+        elif reward_fn_type == 'rouge_l':
+            #print(f"[RewardFn] Using ROUGE-L (LCS-based) for {data_source}")
+            return qrecc_bleu_rouge.compute_score_rouge_l
+        elif reward_fn_type == 'rouge_1':
+            #print(f"[RewardFn] Using ROUGE-1 (unigram) for {data_source}")
+            return qrecc_bleu_rouge.compute_score_rouge_1
+        elif reward_fn_type == 'rouge_2':
+            #print(f"[RewardFn] Using ROUGE-2 (bigram) for {data_source}")
+            return qrecc_bleu_rouge.compute_score_rouge_2
         else:
             #print(f"[RewardFn] Using EM (exact match) for {data_source}")
             return qrecc_em.compute_score_em
@@ -70,6 +86,10 @@ class RewardManager():
     - 'f1': Token-level F1 score (partial credit) - 0 to 1
     - 'em_f1': Combined EM + F1 (full for EM, partial for F1) - 0 to 1
     - 'hybrid': Format-aware F1 scoring with tiered rewards
+    - 'bleu': BLEU score (n-gram precision, good for long text) - 0 to 1
+    - 'rouge_l': ROUGE-L score (LCS-based, good for summarization) - 0 to 1
+    - 'rouge_1': ROUGE-1 score (unigram overlap) - 0 to 1
+    - 'rouge_2': ROUGE-2 score (bigram overlap) - 0 to 1
     """
 
     def __init__(self, tokenizer, num_examine, format_score=0., reward_fn_type='em') -> None:
