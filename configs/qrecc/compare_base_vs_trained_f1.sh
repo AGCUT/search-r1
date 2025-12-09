@@ -56,8 +56,8 @@ run_evaluation() {
     echo ""
 
     PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
-        data.train_files=$DATA_DIR/qrecc_train.json \
-        data.val_files=$DATA_DIR/qrecc_test.json \
+        data.train_files=$DATA_DIR/train.parquet \
+        data.val_files=$DATA_DIR/test.parquet \
         data.train_data_num=null \
         data.val_data_num=null \
         data.train_batch_size=512 \

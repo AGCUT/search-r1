@@ -13,9 +13,9 @@
 
 ## 🚀 完整操作步骤（在 Linux 服务器上执行）
 
-### 步骤 1: 转换测试数据格式
+### 步骤 1: 转换数据格式
 
-QReCC 的 `qrecc_test.json` 需要转换为 parquet 格式才能被评估脚本使用。
+QReCC 的原始 JSON 文件需要转换为 parquet 格式才能被 veRL 评估框架使用。转换脚本会同时处理训练集和测试集。
 
 ```bash
 # 进入项目目录
@@ -24,39 +24,51 @@ cd /usr/yuque/guo/searchr1  # 替换为您的实际路径
 # 激活 conda 环境
 conda activate searchr1
 
-# 运行转换脚本
+# 运行转换脚本（会同时转换 train 和 test）
 bash convert_qrecc_test.sh
 ```
 
 **预期输出:**
 ```
 ======================================================================
-QReCC 测试数据转换 - JSON 转 Parquet
+QReCC 数据转换 - JSON 转 Parquet
 ======================================================================
-输入文件: data/qrecc_raw/qrecc_test.json
-输出文件: data/qrecc_raw/test.parquet
+测试集:
+  输入文件: data/qrecc_raw/qrecc_test.json
+  输出文件: data/qrecc_raw/test.parquet
+
+训练集:
+  输入文件: data/qrecc_raw/qrecc_train.json
+  输出文件: data/qrecc_raw/train.parquet
+
 模板类型: base
 ======================================================================
 
-Loading data from data/qrecc_raw/qrecc_test.json...
+======================================================================
+转换测试集...
+======================================================================
 ✓ Loaded 16451 examples
-
-Processing examples...
-  Processed 1000/16451 examples...
-  Processed 2000/16451 examples...
-  ...
 ✓ Processed 16451 examples
-
 ✓ Saved 16451 examples to data/qrecc_raw/test.parquet
+
+======================================================================
+转换训练集...
+======================================================================
+✓ Loaded 54720 examples
+✓ Processed 54720 examples
+✓ Saved 54720 examples to data/qrecc_raw/train.parquet
 
 ======================================================================
 ✓ 转换成功！
 ======================================================================
+生成的文件:
+  测试集: data/qrecc_raw/test.parquet
+  训练集: data/qrecc_raw/train.parquet
 ```
 
 **验证转换结果:**
 ```bash
-python -c "import pandas as pd; df = pd.read_parquet('data/qrecc_raw/test.parquet'); print(f'总样本数: {len(df)}'); print(df.columns.tolist())"
+python -c "import pandas as pd; df = pd.read_parquet('data/qrecc_raw/test.parquet'); print(f'测试集样本数: {len(df)}'); df2 = pd.read_parquet('data/qrecc_raw/train.parquet'); print(f'训练集样本数: {len(df2)}')"
 ```
 
 ---
